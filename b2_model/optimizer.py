@@ -13,7 +13,6 @@ import pandas as pd
 import torch
 from brian2 import *
 from joblib import dump, load
-from sbi import analysis as analysis
 from sbi import utils as sbutils
 from sbi.inference import SNPE, prepare_for_sbi, simulate_for_sbi
 from sbi.inference.base import infer
@@ -191,35 +190,15 @@ class _internal_SBI_opt():
         self.proposal = posterior.set_default_x(self.x_obs)
         return
 
-    def get_result(self):
-        posterior_samples = self.posts[-1].sample((5000,), x=self.x_obs) #sample 5,000 points
-        log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs).numpy()  # get the log prop of these points
+    def get_result(self, points=500):
+        self.posts[-1].sample_with_mcmc = True
+        posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
+        log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
         params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}
         for i, (key, val) in enumerate(self._params.items()):
             res_dict[key] = params[i] * self._units[i]
         return res_dict
-
-    def optimize(self, model, id):
-        self.model = model
-        posteriors = []
-        simulator = self.fi_passthru
-        proposal = self.proposal
-        simulator, proposal = prepare_for_sbi(simulator, proposal)
-        for _ in range(10):
-            theta, x = simulate_for_sbi(simulator, proposal, num_simulations=500, simulation_batch_size=500)
-            density_estimator =  self.opt.append_simulations(theta, x, proposal=proposal).train()
-            posterior =  self.opt.build_posterior(density_estimator)
-            posteriors.append(posterior)
-            proposal = posterior.set_default_x(self.x_obs)
-
-    def fi_passthru(self, args):
-        dict_in = {}
-        for i, (row, (key, val)) in enumerate(zip(args.numpy().T, self._params.items())):
-            dict_in[key] = row * self._units[i]
-        self.model.set_params({'N': args.numpy().shape[0]})
-        out = np.nan_to_num(np.hstack((self.model.build_FI_curve(dict_in))).reshape(args.numpy().shape[0], -1), posinf=0, neginf=0)
-        return torch.tensor(out, dtype=default_dtype)
 
     def fit(self, model, id='default'):
         
@@ -257,6 +236,31 @@ class _internal_SBI_opt():
                      break
             print(f"[CELL {id}] - iter {i} excuted in {(t_end-t_start)/60} min, with error {np.amin(y)} ") #
         
+
+    def optimize(self, model, id):
+        
+       
+
+        #DEPRACATED DO NOT USE
+        self.model = model
+        posteriors = []
+        simulator = self.fi_passthru
+        proposal = self.proposal
+        simulator, proposal = prepare_for_sbi(simulator, proposal)
+        for _ in range(10):
+            theta, x = simulate_for_sbi(simulator, proposal, num_simulations=500, simulation_batch_size=500)
+            density_estimator =  self.opt.append_simulations(theta, x, proposal=proposal).train()
+            posterior =  self.opt.build_posterior(density_estimator)
+            posteriors.append(posterior)
+            proposal = posterior.set_default_x(self.x_obs)
+
+    def fi_passthru(self, args):
+            dict_in = {}
+            for i, (row, (key, val)) in enumerate(zip(args.numpy().T, self._params.items())):
+                dict_in[key] = row * self._units[i]
+            self.model.set_params({'N': args.numpy().shape[0]})
+            out = np.nan_to_num(np.hstack((self.model.build_FI_curve(dict_in))).reshape(args.numpy().shape[0], -1), posinf=0, neginf=0)
+            return torch.tensor(out, dtype=default_dtype)
 
 
 

@@ -1,6 +1,7 @@
-{  "model_choice" : "adEx",
-   "stim_names_inc" : ["1000ms"],
-   "stim_names_exc" : [""],
+{  "model_choice" : "adEx", 
+   "stim_names_inc" : ["1000", "long"],
+   "stim_names_exc" : ["rheo", "Rf50"],
+   "sweeps_to_fit" : [], 
    "constraints": { "adEx": {
                         "C" : [5, 350],
                         "taum": [9, 250],
