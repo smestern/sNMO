@@ -190,9 +190,12 @@ class _internal_SBI_opt():
         self.proposal = posterior.set_default_x(self.x_obs)
         return
 
-    def get_result(self, points=500):
+    def get_result(self, points=50, from_cache=True):
         self.posts[-1].sample_with_mcmc = True
-        posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
+        if from_cache:
+            posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
+        else:
+            posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
         log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
         params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}
@@ -212,14 +215,12 @@ class _internal_SBI_opt():
             param_list = self.ask()
             param_dict = param_list
             print(f"sim {(time.time()-t_start)/60} min start")
-            fi, ISI = model.build_FI_curve(param_dict)
-
-            y = np.hstack((fi, ISI))
+            y = model.build_feature_curve(param_dict)
             print(f"sim {(time.time()-t_start)/60} min end")
             self.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
             t_end = time.time()
             min_ar.append(np.sort(y)[:5])
-            res = self.get_result()
+            res = self.get_result(from_cache=False)
             #try:
             plot_trace(res, model)
                 

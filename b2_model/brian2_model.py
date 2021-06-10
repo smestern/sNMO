@@ -259,6 +259,57 @@ class brian2_model(object):
         del self.temp_spike_array
         return spikes_return.T / self._run_time, isi_return.T
 
+    def build_feature_curve(self, param_dict):
+        self.__dict__.update(param_dict) ##Apply the passed in params to the model
+        if param_dict is not None:
+            self.__dict__.update(param_dict)
+        spikes_full = [[] for x in np.arange(self.N)]
+        isi_full = [[] for x in np.arange(self.N)]
+        ##Generate an empty list of length N_UNITS which allows us to dump the subthreshold params into
+        subthres_features = [[] for x in np.arange(self.N)]
+        rmp_full = [[] for x in np.arange(self.N)]
+        stim_min = [[] for x in np.arange(self.N)]
+        for i, sweep in enumerate(self.realC): #For each sweep
+            print(f"Simulating sweep {i}")
+            self.activeSweep = i ##set the active sweep to the spiking sweep set by user
+            spikes, voltage = self.run_current_sim()
+            temp_spike_array = spikes.spike_trains() # Grab the spikes oriented by neuron in the network
+            print("Simulation Finished")
+            for p in np.arange(self.N): #For each neuron
+
+                    pspikes = temp_spike_array[p] #Grab that neurons spike times
+                    if len(pspikes) > 0: #If there are any spikes
+                        spikes_full[p].append(len(pspikes)) #Count the number of spikes and add it to the full array
+                        spike_s = pspikes/ms #get the spike time in ms
+                        if len(spike_s) > 1: #If there is more than one spike
+                            isi_full[p].append(np.nanmean(np.diff(spike_s))) #compute the mode ISI
+                        else:
+                            isi_full[p].append(0) #otherwise the mode ISI is set to zero
+                    else:
+                        spikes_full[p].append(0) #If no spikes then send both to zero
+                        isi_full[p].append(0)
+
+                    
+                    ##Compute Subthresfeatures
+                    temp_rmp = compute_rmp(voltage[p].v/mV.reshape(1,-1), sweep.reshape(1,-1)) #compute the beginning Resting membrane
+                    rmp_full[p].append(temp_rmp)
+                    if i in self.subthresholdSweep:
+                        temp_deflection = compute_steady_hyp(voltage[p].v/mV.reshape(1,-1), sweep.reshape(1,-1)) #compute the end
+                        subthres_features[p].append(temp_deflection)
+
+                        #compute Sweepwisemin
+                        temp_min = compute_min_stim(voltage[p].v/mV, voltage[0].t/second, strt=0.2, end=1.2)
+                        stim_min[p].append(temp_min)
+                
+        neuron_avgs = np.vstack([np.nanmean(np.vstack(x), axis=0) for x in rmp_full])
+        #of the SubT features
+        spikes_return = np.array(spikes_full) #Stack all the arrays together
+        isi_return = np.array(isi_full) #Stack all the arrays together
+        min_return = np.array(stim_min)
+        sub_return = np.array(subthres_features)
+        return_full = np.hstack((spikes_return / self._run_time, isi_return, neuron_avgs, sub_return, min_return))
+        return return_full
+
     def _internal_spike_error(self, x):
           temperror = compute_spike_dist(np.asarray(self.temp_spike_array[x] / second), self.spike_times[self.activeSweep]) 
           return temperror

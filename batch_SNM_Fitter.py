@@ -103,10 +103,12 @@ if __name__ == "__main__": ##If the script is called from the command line this 
                         help='the optimizer to use', required=False)
     parser.add_argument('--parallel', type=int, default=-1,
                         help='number of threads to use (one cell per thread)', required=False)
+    parser.add_argument('--optimizerSettings', type=str, default='optimizer_settings.json',
+                        help='additional settings for the opitmizer to use', required=False)
 
     args = parser.parse_args()
 
-    with open('optimizer_settings.json') as f:
+    with open(args.optimizerSettings) as f:
         optimizer_settings = json.load(f)
 
     main(args, optimizer_settings)
