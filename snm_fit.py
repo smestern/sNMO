@@ -84,53 +84,6 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds_=500, batch_s
 
 # === Helper functions ===
 
-
-def plot_trace(param_dict, model):
-    ''' 
-    Plots the trace (for debugging purposes)
-    '''
-    realX, realY = model.realX, model.realY
-    figure(figsize=(10,10), num=15)
-    clf()
-    model.set_params(param_dict)
-    model.set_params({'N': 1})
-    for x in [*model.subthresholdSweep, model.spikeSweep[-1]]:
-        spikes, traces = model.run_current_sweep(x)
-        plot(realX[x,:], traces.v[0] /mV, label="Sim sweep {x}", c='r', alpha=0.5, zorder=9999)
-        plot(realX[x,:], realY[x,:], label=f"Real Sweep {x}", c='k')
-        if len(spikes.t) > 0:
-            scatter(spikes.t, np.full(spikes.t.shape[0], 60) ,label="Sim spike times", marker='x')
-    
-    
-    return
-
-def plot_IF(param_dict, model):
-    ''' 
-    Plots the I(current)-F(frequency of spikes) for the model
-    '''
-    realX, realY, realC = model.realX, model.realY, model.realC
-    figure(figsize=(10,10), num=13)
-    clf()
-    subplot(1,2,1)
-    
-    model.set_params(param_dict)
-    model.set_params({'N':1})
-    realspikes = model._detect_real_spikes()
-    real_spike_curve,real_ISI = compute_FI_curve(realspikes, model._run_time)
-    
-    simspikes,sim_ISI = model.build_FI_curve()
-    simspikes = simspikes[0]
-    mse = compute_mse(np.asarray(real_spike_curve),np.hstack(simspikes))
-    plot(np.arange(simspikes.shape[0]), simspikes, label=f"Sim FI")
-    plot(np.arange(simspikes.shape[0]), real_spike_curve, label=f"Real FI")
-    
-    legend()
-    subplot(1,2,2)
-    plot(np.arange(real_ISI.shape[0]), sim_ISI[0, :], label=f"Sim FI")
-    plot(np.arange(real_ISI.shape[0]), real_ISI, label=f"Real FI")
-    
-    legend()
-
 def load_data_and_model(file, sweep_upper_cut=None):
     ''' loads a NWB file from a file path. Also computes basic parameters such as capactiance   
     takes:  
@@ -157,8 +110,11 @@ def load_data_and_model(file, sweep_upper_cut=None):
     realX, realY, realC = sweepwise_qc(realX, realY, realC)
     sweeplim = np.arange(realX.shape[0])
     dt = compute_dt(realX)
-    compute_el = compute_rmp(realY[:,:], realC[:,:])
-
+    compute_el = compute_rmp(realY[:2,:], realC[:2,:])
+    #baseline the data to the first two sweeps?
+    sweepwise_el = np.array([compute_rmp(realY[x,:].reshape(1,-1), realC[x,:].reshape(1,-1)) for x in np.arange(realX.shape[0])])
+    sweep_offset = (sweepwise_el - compute_el).reshape(-1,1)
+    realY = realY - sweep_offset
     #Compute Spike Times
     spike_time = detect_spike_times(realX, realY, realC, sweeplim, upper=1.15) #finds geh 
     spiking_sweeps = np.nonzero([len(x) for x in spike_time])[0]
@@ -202,17 +158,17 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     global non_spiking_sweeps
     global N
     # Generate the X_o (observation) uses a combination of different params
-    real_fi, real_isi = compute_FI_curve(model.spike_times, 2) #Compute the real FI curve
+    real_fi, real_isi = compute_FI_curve(model.spike_times, model._run_time) #Compute the real FI curve
     real_fi = np.hstack((real_fi, real_isi))
     real_rmp = compute_rmp(model.realY, model.realC)
     real_min = []
     real_subt = []
-    for x in non_spiking_sweeps:
+    for x in model.subthresholdSweep:
         temp = compute_steady_hyp(model.realY[x, :].reshape(1,-1), model.realC[x, :].reshape(1,-1))
         temp_min = compute_min_stim(model.realY[x, :], model.realX[x,:], strt=0.62, end=1.2)
         real_subt.append(temp)
         real_min.append(temp_min)
-    real_subt = np.nanmean(real_subt)        
+    real_subt = np.array(real_subt)        
     
     real_min = np.hstack(real_min)
     N = batch_size
@@ -226,7 +182,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
 
 
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend='sbi')
-    opt.opt.set_x(real_fi)
+    opt.opt.set_x(x_o)
     #set the default X, seems to speed up sampling
     opt.opt.fit(model, id='test')
 
