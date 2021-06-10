@@ -43,7 +43,7 @@ class brian2_model(object):
         P.v = res_dict['EL']
         # monitor
         M = SpikeMonitor( P )
-        V = StateMonitor( P, ["v", "w"], record=True, dt=self.dt * ms, when='start')
+        V = StateMonitor( P, ["v"], record=True, dt=self.dt * ms, when='start')
         run(self._run_time * second)
         return M,V
 
@@ -83,9 +83,6 @@ class brian2_model(object):
     def _compute_real_fi(self):
         self.realFI, self.realISI = compute_FI_curve(self.spike_times, self._run_time)
         return
-
-
-
 
     #== Optimization functions ==
 

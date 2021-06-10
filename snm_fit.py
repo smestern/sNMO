@@ -391,137 +391,18 @@ if __name__ == "__main__":
     run_optimizer(args.inputFile, optimizer=args.optimizer)
 
     
-
-
 # Functions below here I need to update or document or delete so just ignore for now
-
-def adif_model(cm_i, taum_i, El_i, a_i, tau_w_i,  Vt_i, VR_i, b_i, realC_i=None, record_v=False) -> [StateMonitor, SpikeMonitor]:
-    '''
-    Simple adif Model function that takes param inputs and outputs the voltage and spike times
-    ---
-    Takes:
-    For below the inputs are in array shape (num_units,), where num_units is the number of realizations of the simulation
-    cm_i (numpy array): Cell Capacitance (cm) in picofarad 
-    taum_i (numpy array): Cell time Constant in ms
-    El_i (numpy array): Leak potential in mV
-    tau_w_i (numpy array): Time constant for adaptation in ms
-    Vt_i (numpy array): Voltage threshold for registering a spike in mV
-    VR_i (numpy array): Reset potential for Vm post-spike in mV
-    
-
-    realC_i (numpy array): 1D numpy array representing the input current in picoamp
-    record_v (bool): Whether to record the voltage for all cells (true), or not (false)
-
-    Returns:
-    voltage (brian2 voltage monitor) with shape (num_units, time_steps)
-    spike times (brian2 spike monitor)
-
-    '''
-    start_scope()
-    eqs='''
-    dv/dt = ( gL*(EL-v) + I - w ) * (1./Cm) : volt (unless refractory)
-    dw/dt = ( a*(v - EL) - w ) / tauw : amp
-    tauw : second
-    a : siemens
-    b : amp
-    Cm : farad
-    taum : second
-    gL : siemens
-    EL : volt
-    VT : volt
-    VR : volt
-    I = in_current(t) : amp
-    '''
-    global dt
-    
-    in_current = TimedArray(values = realC_i * pamp, dt=dt * ms)
-    G1 = NeuronGroup(N, eqs, threshold='v > VT', reset='v = VR; w+=b', refractory=0 * ms, method='euler')
-    #init:
-    G1.tauw = tau_w_i *ms; 
-    G1.b = b_i * pA; 
-    G1.a = a_i * nS; 
-    G1.VT = Vt_i * mV;
-    G1.taum = taum_i * ms;
-    G1.VR = VR_i *mV
-    #parameters
-    G1.Cm = cm_i * pF
-    G1.gL = ((cm_i *pF)/ (taum_i * ms))
-    G1.EL = El_i *mV
-    G1.v = El_i *mV
-    # record variables
-    if record_v == True:
-        #Only record voltage if explicity asked to save memory
-        Mon_v = StateMonitor( G1, "v", record=True, dt= dt * ms)
-    else:
-        Mon_v = None
-    Mon_spike = SpikeMonitor( G1 )
-    run(2.5 * second)
-    return Mon_v, Mon_spike
-
-def generate_fi_curve(param_set, save=True) -> torch.tensor:
-    ''' Function to handle interfacing between SNPE and brian2, running each sweep and computing the FI curve.
-    Takes:
-    param_set (torch.tensor) of shape (num_units, params): A tensor containg the randomly sampled params, each row represents a single cell param set.
-
-    Returns:
-    vars (torch.tensor) of shape (num_units, measured vars): A tensor containing the FI curve, ISI-mode-Curve (most common ISI per Sweep), and subthreshold params
-    '''
-    global non_spiking_sweeps
-    param_list = param_set.numpy() #Input is pytorch tensor converting it to a numpy array for brian2 purposes
-    if param_list.shape[0] > 12:
-        cm_i, taum_i, El_i, a_i, tau_w_i, Vt_i, VR_i, b_i = np.hsplit(np.vstack(param_list), 8) #Splits the variables out of the array
-        ## Then flatten the variable arrays
-        cm_i, taum_i, El_i, a_i, tau_w_i, Vt_i, VR_i, b_i = np.ravel(cm_i), np.ravel(taum_i), np.ravel(El_i), np.ravel(a_i), np.ravel(tau_w_i), np.ravel(Vt_i), np.ravel(VR_i), np.ravel(b_i)
-    else:
-        cm_i, taum_i, El_i, a_i, tau_w_i, Vt_i, VR_i, b_i = param_list
-    spikes_full = [[] for x in np.arange(N)]
-    isi_full = [[] for x in np.arange(N)]
-    ##Generate an empty list of length N_UNITS which allows us to dump the subthreshold params into
-    subthres_features = [[] for x in np.arange(N)]
-    rmp_full = [[] for x in np.arange(N)]
-    stim_min = [[] for x in np.arange(N)]
-    for i, sweep in enumerate(realC): #For each sweep
-        print(f"Simulating sweep {i}")
-        voltage, spikes = adif_model(cm_i, taum_i, El_i, a_i, tau_w_i, Vt_i, VR_i, b_i, realC_i=sweep, record_v=True) #Run the adex model with the passed in params
-        temp_spike_array = spikes.spike_trains() # Grab the spikes oriented by neuron in the network
-        print("Simulation Finished")
-        print("Computing features")
-        for p in np.arange(N): #For each neuron
-                pspikes = temp_spike_array[p] #Grab that neurons spike times
-                if len(pspikes) > 0: #If there are any spikes
-                    spikes_full[p].append(len(pspikes)) #Count the number of spikes and add it to the full array
-                    spike_s = pspikes/ms #get the spike time in ms
-                    if len(spike_s) > 1: #If there is more than one spike
-                        isi_full[p].append(np.nanmean(np.diff(spike_s))) #compute the mode ISI
-                    else:
-                        isi_full[p].append(0) #otherwise the mode ISI is set to zero
-                else:
-                    spikes_full[p].append(0) #If no spikes then send both to zero
-                    isi_full[p].append(0)
-
-                
-                ##Compute Subthresfeatures
-                temp_rmp = compute_rmp(voltage[p].v/mV.reshape(1,-1), sweep.reshape(1,-1)) #compute the beginning Resting membrane
-                if i in non_spiking_sweeps:
-                    temp_deflection = compute_steady_hyp(voltage[p].v/mV.reshape(1,-1), sweep.reshape(1,-1)) #compute the end
-                    subthres_features[p].append(np.hstack((temp_rmp, temp_deflection)))
-
-                    #compute Sweepwisemin
-                    temp_min = compute_min_stim(voltage[p].v/mV, voltage[0].t/second, strt=0.62, end=1.0)
-                    stim_min[p].append(temp_min)
-        print("Computation finished")
-    neuron_avgs = np.vstack([np.nanmean(np.vstack(x), axis=0) for x in subthres_features])
-    #of the SubT features
-    spikes_return = np.array(spikes_full) #Stack all the arrays together
-    isi_return = np.array(isi_full) #Stack all the arrays together
-    min_return = np.array(stim_min)
-    sub_return = np.array(subthres_features)
-    return_full = np.hstack((spikes_return / 2, isi_return, neuron_avgs, min_return))
-    #Load and save array
-    
-    return torch.tensor(return_full, dtype=default_dtype)
-
 def _check_min_loss_gradient(min_ar, num_no_improvement=10, threshold=1e-5):
+    """ Checks the minimum loss gradient for early stopping purposes. Using a simple linear regression of the minimum found in each local round.
+
+    Args:
+        min_ar (numpy array): an array containing the found minimum for each round
+        num_no_improvement (int, optional): Number of rounds as a minimum for early stopping. Defaults to 10.
+        threshold (float, optional): The minimum slope (in either direction) for the rounds to be stopped. Defaults to 1e-5.
+
+    Returns:
+        pass_check (bool): boolean indicating whether the 
+    """
     pass_check = True
     min_ar = np.array(min_ar)
     min_ar = np.nanmean(min_ar, axis=1)
@@ -532,7 +413,5 @@ def _check_min_loss_gradient(min_ar, num_no_improvement=10, threshold=1e-5):
         slope, _, _, p, _ = stats.linregress(x, min_ar[-num_no_improvement:])
         if (slope < threshold and slope > -threshold) and p < 0.01:
             pass_check = False
-        print(slope)
-    
     return pass_check
 

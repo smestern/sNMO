@@ -232,9 +232,9 @@ class _internal_SBI_opt():
                 #os.remove(f"output//{id}_{i-1}_fit_IF.png")
             #except:
                # pass
-            if len(min_ar) > 5:
-                 if _check_min_loss_gradient(min_ar, num_no_improvement=25, threshold=1e-5) == False:
-                     break
+            #if len(min_ar) > 5:
+                 #if _check_min_loss_gradient(min_ar, num_no_improvement=25, threshold=1e-5) == False:
+                  #   break
             print(f"[CELL {id}] - iter {i} excuted in {(t_end-t_start)/60} min, with error {np.amin(y)} ") #
         
 

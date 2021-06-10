@@ -15,7 +15,7 @@ parallel = False
 
 def fit_cell(fp):
     cell_id = fp.split("\\")[-1].split(".")[0]
-    realX, realY, realC,_ = loadNWB(fp, old=True)
+    realX, realY, realC,_ = loadNWB(fp, old=False)
     idx_stim = np.argmin(np.abs(realX - 1))
     current_out = realC[:, idx_stim]
     return current_out
@@ -30,7 +30,7 @@ def all_in(ar2, ar1):
 
 def main():
     _dir = os.path.dirname(__file__)
-    _path = glob.glob(_dir + '//..//NWB_with_stim//macaque//*.nwb')
+    _path = glob.glob(_dir + '//..//NWB_with_stim//macaque//v1//*.nwb')
     file_id =[]
     full_cells = []
     for fp in _path:
@@ -49,10 +49,10 @@ def main():
     uni2 = uni2[uni2!=-9999]
     sort_count = np.sort(count2)[::-1]
     sort_uni = uni2[np.argsort(count2)[::-1]]
-    sort_uni_gtr = sort_uni[:6]
+    sort_uni_gtr = sort_uni[:10]
     Row_contains = np.apply_along_axis(all_in, 1, np_val, sort_uni_gtr)
-    Row_contains2 = np.apply_along_axis(all_in, 1, np_val, [-70,70])
-    print(np.sum(Row_contains))
+    Row_contains2 = np.apply_along_axis(all_in, 1, np_val, [-70,-50,50,70])
+    print(f'found {np.sum(Row_contains2)} cells with common current')
     np.savetxt(_dir +"//output//common_current_in.csv", np.sort(sort_uni_gtr), delimiter=',', fmt='%.8f')
 
 
