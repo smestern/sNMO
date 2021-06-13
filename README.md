@@ -9,7 +9,7 @@ The project contains several methods for fitting single neurons, from high level
 
 for neuronex-wm IRG2 members, there are two scripts to be used from the command line. These scripts are designed to fit single cells while handling most of the backend fitting procedures as well as data cleanup / QC.
 
-`-batch_SNM_fitter.py : A command line script used to iterate over a folder and fit the NWB's within. Allows parallelization, e.g. fitting one cell per thread. Call be called using the following commands`
+#### -batch_SNM_fitter.py : A command line script used to iterate over a folder and fit the NWB's within. Allows parallelization, e.g. fitting one cell per thread. Call be called using the following commands
 ```
 --inputFolder : a path to the folder containing the NWBS to be fitt
 --outputFolder : a path to the output folder where fitting results will be saved, and progress will be reported

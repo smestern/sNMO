@@ -14,6 +14,7 @@ import torch
 from brian2 import *
 from joblib import dump, load
 from sbi import utils as sbutils
+from sbi import analysis
 from sbi.inference import SNPE, prepare_for_sbi, simulate_for_sbi
 from sbi.inference.base import infer
 from skopt import Optimizer, plots, space
@@ -140,15 +141,22 @@ class _internal_skopt():
             param_dict[label] = value
         return param_dict
 
+class _internal_Ax_opt():
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000):
+        self._units = [globals()[x] for x in params_dict.pop('units')]
+        self._params = OrderedDict(params_dict)
+        self._build_params_space()
+
+
+
 class _internal_SBI_opt():
     ''''''
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None):
-        #Build Params
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000):
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
         #intialize the optimizer
-        
+        self.n_initial_sim = n_initial_sim
         self.proposal = self.params
         self.rounds = rounds
         self.batch_size = batch_size
@@ -196,6 +204,7 @@ class _internal_SBI_opt():
             posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
         else:
             posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
+        self.x_posterior_samples = posterior_samples
         log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
         params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}
@@ -212,7 +221,12 @@ class _internal_SBI_opt():
             print(f"[CELL {id}] - iter {i} start")
             model.set_params({'N': self.batch_size, 'refractory':0})
             t_start = time.time()
-            param_list = self.ask()
+            if i == 0:
+                #for the first round we ask for way more points
+                param_list = self.ask(n_points=self.n_initial_sim)
+                model.set_params({'N': self.n_initial_sim, 'refractory':0})
+            else:
+                param_list = self.ask()
             param_dict = param_list
             print(f"sim {(time.time()-t_start)/60} min start")
             y = model.build_feature_curve(param_dict)
@@ -222,12 +236,17 @@ class _internal_SBI_opt():
             min_ar.append(np.sort(y)[:5])
             res = self.get_result(from_cache=False)
             #try:
+            analysis.plot.pairplot(self.x_posterior_samples, labels=[x for x in self._params.keys()])
+            plt.savefig(f"output//{id}_{i}_pairplot.png")
             plot_trace(res, model)
                 
             plt.savefig(f"output//{id}_{i}_fit_vm.png")
             plot_IF(res, model)
                 
             plt.savefig(f"output//{id}_{i}_fit_IF.png")
+
+            plot_feature_curve(self.x_obs, model, res)
+            plt.savefig(f"output//{id}_{i}_feature_curve.png")
                 #os.remove(f"output//{id}_{i-1}_fit_vm.png")
                 #os.remove(f"output//{id}_{i-1}_fit_IF.png")
             #except:
@@ -237,24 +256,6 @@ class _internal_SBI_opt():
                   #   break
             print(f"[CELL {id}] - iter {i} excuted in {(t_end-t_start)/60} min, with error {np.amin(y)} ") #
         
-
-    def optimize(self, model, id):
-        
-       
-
-        #DEPRACATED DO NOT USE
-        self.model = model
-        posteriors = []
-        simulator = self.fi_passthru
-        proposal = self.proposal
-        simulator, proposal = prepare_for_sbi(simulator, proposal)
-        for _ in range(10):
-            theta, x = simulate_for_sbi(simulator, proposal, num_simulations=500, simulation_batch_size=500)
-            density_estimator =  self.opt.append_simulations(theta, x, proposal=proposal).train()
-            posterior =  self.opt.build_posterior(density_estimator)
-            posteriors.append(posterior)
-            proposal = posterior.set_default_x(self.x_obs)
-
     def fi_passthru(self, args):
             dict_in = {}
             for i, (row, (key, val)) in enumerate(zip(args.numpy().T, self._params.items())):
@@ -264,7 +265,12 @@ class _internal_SBI_opt():
             return torch.tensor(out, dtype=default_dtype)
 
 
-
+def plot_feature_curve(x_o, model, res):
+    model.set_params({"N": 1})
+    x_best = model.build_feature_curve(res)
+    plt.clf()
+    plt.plot(x_o)
+    plt.plot(np.ravel(x_best))
 
 
 

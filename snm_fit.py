@@ -97,13 +97,24 @@ def load_data_and_model(file, sweep_upper_cut=None):
     global dt
     global spiking_sweeps
     global non_spiking_sweeps
+    sweeps_to_use = [-70, -50, 50, 70]
     file_path = file
     
     realX, realY, realC,_ = loadNWB(file_path, old=False)
     index_3 = np.argmin(np.abs(realX[0,:]-2.50))
     ind_strt = np.argmin(np.abs((realX[0,:]-0.50)))
-    if sweep_upper_cut == None:
+    if sweep_upper_cut != None:
         realX, realY, realC = realX[:,ind_strt:index_3], realY[:,ind_strt:index_3], realC[:,ind_strt:index_3]
+    elif sweeps_to_use != None:
+        #load -70, -50, 50 70
+        idx_stim = np.argmin(np.abs(realX - 1))
+        current_out = realC[:, idx_stim]
+        #take only the current steps we want
+        current_idx = [x in sweeps_to_use for x in current_out]
+        if np.sum(current_idx) < len(sweeps_to_use):
+            raise ValueError("The file did not have the requested sweeps")
+        else:
+            realX, realY, realC = realX[current_idx,ind_strt:index_3], realY[current_idx,ind_strt:index_3], realC[current_idx,ind_strt:index_3]
     else:   
         realX, realY, realC = realX[:sweep_upper_cut,ind_strt:index_3], realY[:sweep_upper_cut,ind_strt:index_3], realC[:sweep_upper_cut,ind_strt:index_3]
     realX = realX - realX[0,0]
