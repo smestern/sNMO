@@ -203,15 +203,7 @@ class _internal_SBI_opt():
     def ask(self, n_points=None):
         if n_points is None:
             n_points = self.batch_size
-        if self.x_obs is not None:
-            leakage = self.proposal.leakage_correction(self.x_obs, num_rejection_samples=100).numpy()
-            logger.debug(f"Backend Leakage of {leakage}")
-            if leakage < 0.8:
-                self.proposal.sample_with_mcmc = False
-            else:
-                self.proposal.sample_with_mcmc = True
-        else:
-            self.proposal.sample_with_mcmc = True
+        self.proposal.sample_with_mcmc = True
         self.param_list = self.proposal.sample((n_points,)).numpy()
         self.param_dict = {}
         for row, (key, value) in zip(self.param_list.T, self._params.items()):
@@ -222,23 +214,18 @@ class _internal_SBI_opt():
 
     def tell(self, points, errors):
         assert errors.shape[0] == len(self.param_list)
-        if self.prefit:
-            dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(discard_prior_samples=True)
-        else:
-            dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(iscard_prior_samples=True)
+        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train()
         posterior = self.opt.build_posterior(dens_est)
         self.posts.append(posterior)
         self.proposal = posterior.set_default_x(self.x_obs)
         return
 
     def get_result(self, points=50, from_cache=True):
-        #self.posts[-1].sample_with_mcmc = True
+        self.posts[-1].sample_with_mcmc = True
         if from_cache:
             posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
         else:
             posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
-        logger.debug(f"Getting result")
-        self.x_posterior_samples = posterior_samples
         log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
         params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}
