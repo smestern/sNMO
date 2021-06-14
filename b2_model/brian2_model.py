@@ -199,7 +199,7 @@ class brian2_model(object):
         #Penalize the error fi if vm goes wayy to high
         spiking_vm = np.nan_to_num(spiking_vm, nan=9999, posinf=9999, neginf=999)
         max_vm = np.amax(spiking_vm, axis=0)
-        bool_max = max_vm>50
+        bool_max = max_vm>150
         error_fi[bool_max] *= 100
 
         #take out the nan's
@@ -320,12 +320,6 @@ class brian2_model(object):
              return 99999
         else:
             return compute_mse(y, yhat)
-
-    def _compute_subthreshold_features(self, x, y, c):
-        stim_int = find_stim_changes(c) #from utils.py
-        sweep_rmp = self._compute_rmp(y, c) #from utils.py
-        sag = subt.sag(x, y, c, x[stim_int[0]], x[stim_int[-1]])
-        print(sag)
    
     def _compute_rmp(self, dataY, dataC):
         deflection = np.nonzero(dataC)[0][0] - 1

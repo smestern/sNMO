@@ -62,7 +62,7 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds_=500, batch_s
     global batch_size
     rounds=rounds_ #Set the global settings to the user passed in params
     batch_size=batch_size_
-    model = load_data_and_model(file, sweep_upper_cut=sweep_upper_cut) #load the nwb and model
+    model = load_data_and_model(file, optimizer_settings, sweep_upper_cut=sweep_upper_cut) #load the nwb and model
     cell_id = file.split("\\")[-1].split(".")[0] #grab the cell id by cutting around the file path
     print(f"== Loaded cell {cell_id} for fitting ==")
     if optimizer == 'skopt' or optimizer=='ng':
@@ -84,7 +84,7 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds_=500, batch_s
 
 # === Helper functions ===
 
-def load_data_and_model(file, sweep_upper_cut=None):
+def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     ''' loads a NWB file from a file path. Also computes basic parameters such as capactiance   
     takes:  
     file (str): a string pointing to a file to be loaded  
@@ -132,15 +132,17 @@ def load_data_and_model(file, sweep_upper_cut=None):
     rheobase = spiking_sweeps[0]
     non_spiking_sweeps = np.delete(np.arange(0, realX.shape[0]), spiking_sweeps)[:2]
     thres = compute_threshold(realX, realY, realC, sweeplim)
+
     #negative current sweeps 
     neg_current = [x<0 for x in realC[:, np.argmin(np.abs(realX-0.5))]]
     neg_current = np.arange(0, realX.shape[0])[neg_current]
+    #Compute cell params
     resistance = membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
     taum = exp_decay_factor(realX[0], realY[0], realC[0], plot=True)
     Cm = (mem_cap((resistance*Gohm)/ohm, taum)) * farad
     Cm = Cm/pF
     taum *=1000
-    model = brian2_model(param_dict={'EL': compute_el, 'dt':dt, '_run_time':2, 'C': Cm, 'taum': taum})
+    model = brian2_model(model=optimizer_settings['model_choice'], param_dict={'EL': compute_el, 'dt':dt, '_run_time':2, 'C': Cm, 'taum': taum})
     model.add_real_data(realX, realY, realC, spike_time, non_spiking_sweeps, spiking_sweeps)
     model.build_params_from_data()
     return model
@@ -174,7 +176,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     real_rmp = compute_rmp(model.realY, model.realC)
     real_min = []
     real_subt = []
-    for x in model.subthresholdSweep:
+    for x in [0,1,2]:
         temp = compute_steady_hyp(model.realY[x, :].reshape(1,-1), model.realC[x, :].reshape(1,-1))
         temp_min = compute_min_stim(model.realY[x, :], model.realX[x,:], strt=0.62, end=1.2)
         real_subt.append(temp)
@@ -191,9 +193,8 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.99, model.C*1.01]
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.99, model.taum*1.01]
 
-
-    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend='sbi')
-    opt.opt.set_x(x_o)
+    model.subthresholdSweep = [0,1,2]
+    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend='sbi', sbi_kwargs=dict(prefit_posterior='_post.pkl', x_obs=x_o))
     #set the default X, seems to speed up sampling
     opt.opt.fit(model, id='test')
 
@@ -243,8 +244,8 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
 
         #adjust the constraints to the found CM or TAUM
         optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.99, model.C*1.01]
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.99, model.taum*1.01]
+        optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.90, model.C*1.1]
+        optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.90, model.taum*1.10]
 
 
         opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
@@ -262,7 +263,7 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
             test = error_calc.transform(np.vstack([error_fi, error_t]).T)
             error_fi = np.nan_to_num(error_fi, nan=999999) * 500
             error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
-            y = error_t + error_fi + error_s
+            y = error_t + error_s
             y = np.nan_to_num(y, nan=999999)
             #y = stats.gmean(np.vstack((error_fi, error_t)), axis=0)
             print(f"sim {(time.time()-t_start)/60} min end")

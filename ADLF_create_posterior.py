@@ -30,7 +30,7 @@ def generate_posterior(tag=''):
     #%% Load and/or compute fixed params
 
     file_path = file_dir +'//..//NWB_with_stim//macaque//v1//M19_JS_A1_C10.nwb'
-    model = load_data_and_model(file_path)
+    model = load_data_and_model(file_path, optimizer_settings)
     realX, realY, realC = model.realX, model.realY, model.realC
     idx_stim = np.argmin(np.abs(realX - 1))
     current_out = realC[:, idx_stim]
@@ -45,7 +45,7 @@ def generate_posterior(tag=''):
     model.add_real_data(realX, realY, realC, spike_time, non_spiking_sweeps, spiking_sweeps)
     ##Global vars ###
     N = 15000
-    batches=1
+    batches=5
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], N, batches, backend='sbi')
     
     model.set_params({'N': N})
@@ -75,6 +75,9 @@ def generate_posterior(tag=''):
     posterior = inference.build_posterior(dens_est)
     with open(f"{tag}_post.pkl", "wb") as f:
             dump(posterior, f)
+
+    with open(f"_prior.pkl", "wb") as f:
+            dump(prior, f)
     
     
 if __name__=="__main__":

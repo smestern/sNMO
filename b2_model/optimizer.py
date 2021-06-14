@@ -2,6 +2,7 @@ import logging
 import sys
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO) #trying to log brian2 errors
+logger = logging.getLogger(__name__)
 import argparse
 import os
 from collections import OrderedDict
@@ -35,7 +36,7 @@ class snmOptimizer():
     params in a way that b2 models want  
     Takes:
     '''
-    def __init__(self, params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs={}, skopt_kwargs={}, nevergrad_opt=DEwithHam):
+    def __init__(self, params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs={}, skopt_kwargs={}, nevergrad_opt=DEwithHam, sbi_kwargs={}):
         if backend == 'ng':
             self.opt = _internal_ng_opt(params_dict, batch_size, rounds, nevergrad_opt, nevergrad_kwargs=nevergrad_kwargs)
             self.ask = self.opt.ask
@@ -47,7 +48,7 @@ class snmOptimizer():
             self.tell = self.opt.tell
             self.get_result = self.opt.get_result
         elif backend == 'sbi':
-            self.opt = _internal_SBI_opt(params_dict, batch_size, rounds)
+            self.opt = _internal_SBI_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
             self.ask = self.opt.ask
             self.tell = self.opt.tell
             self.get_result = self.opt.get_result
@@ -62,7 +63,7 @@ class snmOptimizer():
 class _internal_ng_opt():
     def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}):
         #Build Params
-        self._units = [globals()[x] for x in params_dict.pop('units')]
+        self._units = [globals()[x] for x in copy(params_dict).pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
         #intialize the optimizer
@@ -151,23 +152,44 @@ class _internal_Ax_opt():
 
 class _internal_SBI_opt():
     ''''''
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000):
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000, prefit_posterior=None, prefit_prior=None):
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
         #intialize the optimizer
+        
         self.n_initial_sim = n_initial_sim
-        self.proposal = self.params
+        
         self.rounds = rounds
         self.batch_size = batch_size
         self.optimizer = SNPE
         self.posts = []
+
+        if prefit_posterior is not None:
+            with open(prefit_posterior, "rb") as f:
+                pf = load(f, allow_pickle=True)
+                self.posts.append(pf)
+                self.proposal = pf
+                self.prefit = True
+            #with open(prefit_prior, "rb") as f:
+                #pf = load(f, allow_pickle=True)
+                #self.posts.append(pf)
+                self.params = self.proposal
+        else:
+            self.proposal = self.params
+            self.prefit = False
+
+        if x_obs is not None:
+            self.x_obs = x_obs
+            self.params.set_default_x(x_obs)
         budget = (rounds * batch_size)
         self.opt = self.optimizer(prior=self.params)
         self._bool_sim_run = False
+        self.x_obs = x_obs
 
     def set_x(self, x):
         self.x_obs = x
+        self.proposal.set_default_x(self.x_obs)
 
     def _build_params_space(self):
         ## Params should be a boxuniform
@@ -181,7 +203,15 @@ class _internal_SBI_opt():
     def ask(self, n_points=None):
         if n_points is None:
             n_points = self.batch_size
-        self.proposal.sample_with_mcmc = True
+        if self.x_obs is not None:
+            leakage = self.proposal.leakage_correction(self.x_obs, num_rejection_samples=100).numpy()
+            logger.debug(f"Backend Leakage of {leakage}")
+            if leakage < 0.8:
+                self.proposal.sample_with_mcmc = False
+            else:
+                self.proposal.sample_with_mcmc = True
+        else:
+            self.proposal.sample_with_mcmc = True
         self.param_list = self.proposal.sample((n_points,)).numpy()
         self.param_dict = {}
         for row, (key, value) in zip(self.param_list.T, self._params.items()):
@@ -192,18 +222,22 @@ class _internal_SBI_opt():
 
     def tell(self, points, errors):
         assert errors.shape[0] == len(self.param_list)
-        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train()
+        if self.prefit:
+            dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(discard_prior_samples=True)
+        else:
+            dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(iscard_prior_samples=True)
         posterior = self.opt.build_posterior(dens_est)
         self.posts.append(posterior)
         self.proposal = posterior.set_default_x(self.x_obs)
         return
 
     def get_result(self, points=50, from_cache=True):
-        self.posts[-1].sample_with_mcmc = True
+        #self.posts[-1].sample_with_mcmc = True
         if from_cache:
             posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
         else:
             posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
+        logger.debug(f"Getting result")
         self.x_posterior_samples = posterior_samples
         log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
         params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob

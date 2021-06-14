@@ -12,7 +12,7 @@ import argparse
 import glob
 import os
 from multiprocessing import freeze_support
-
+import logging
 import pandas as pd
 from brian2 import *
 from joblib import Parallel, delayed
@@ -21,6 +21,8 @@ import json
 import snm_fit as snm_fit
 from loadNWB import *
 from utils import *
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 def fit_cell(fp, optimizer, optimizer_settings):
@@ -37,7 +39,7 @@ def fit_cell(fp, optimizer, optimizer_settings):
         spikes = detect_spike_times(realX, realY, realC)
         sweep_upper = find_decline_fi(spikes)
         most_spikes = len(max(spikes, key=len))
-        temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds_=200, batch_size_=500, optimizer=optimizer, sweep_upper_cut=None)
+        temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds_=2, batch_size_=500, optimizer=optimizer, sweep_upper_cut=None)
         temp_df['id'] = [cell_id]
         return temp_df
     except Exception as e:
@@ -97,7 +99,7 @@ if __name__ == "__main__": ##If the script is called from the command line this 
                         help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//pfc//'))
     parser.add_argument('--outputFolder', type=str,
                         help='the output folder for the generated data', default= _dir +'//output//')
-    parser.add_argument('--optimizer', type=str, default='ng',
+    parser.add_argument('--optimizer', type=str, default='sbi',
                         help='the optimizer to use', required=False)
     parser.add_argument('--parallel', type=int, default=-1,
                         help='number of threads to use (one cell per thread)', required=False)
