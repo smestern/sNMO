@@ -63,7 +63,7 @@ class snmOptimizer():
 class _internal_ng_opt():
     def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}):
         #Build Params
-        self._units = [globals()[x] for x in copy(params_dict).pop('units')]
+        self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
         #intialize the optimizer

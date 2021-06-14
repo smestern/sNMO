@@ -97,7 +97,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     global dt
     global spiking_sweeps
     global non_spiking_sweeps
-    sweeps_to_use = [-70, -50, 50, 70]
+    sweeps_to_use = None
     file_path = file
     
     realX, realY, realC,_ = loadNWB(file_path, old=False)
@@ -248,7 +248,7 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
         optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.90, model.taum*1.10]
 
 
-        opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
+        opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), batch_size, rounds, backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
         error_calc = weightedErrorMetric(weights=[1000, 1])
         min_ar = []
         print(f"== Starting Optimizer with {rounds} rounds ===")
@@ -263,7 +263,7 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
             test = error_calc.transform(np.vstack([error_fi, error_t]).T)
             error_fi = np.nan_to_num(error_fi, nan=999999) * 500
             error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
-            y = error_t + error_s
+            y = error_t + error_fi + error_s
             y = np.nan_to_num(y, nan=999999)
             #y = stats.gmean(np.vstack((error_fi, error_t)), axis=0)
             print(f"sim {(time.time()-t_start)/60} min end")
