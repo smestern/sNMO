@@ -103,7 +103,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     realX, realY, realC,_ = loadNWB(file_path, old=False)
     index_3 = np.argmin(np.abs(realX[0,:]-2.50))
     ind_strt = np.argmin(np.abs((realX[0,:]-0.50)))
-    if sweep_upper_cut != None:
+    if sweep_upper_cut == None:
         realX, realY, realC = realX[:,ind_strt:index_3], realY[:,ind_strt:index_3], realC[:,ind_strt:index_3]
     elif sweeps_to_use != None:
         #load -70, -50, 50 70
@@ -243,7 +243,7 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
         budget = int(rounds * batch_size)
 
         #adjust the constraints to the found CM or TAUM
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
+        optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.1, model.EL*0.90]
         optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.90, model.C*1.1]
         optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.90, model.taum*1.10]
 

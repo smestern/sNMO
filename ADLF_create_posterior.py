@@ -85,21 +85,3 @@ if __name__=="__main__":
 
 
 # %%
-
-if prefit_posterior is not None:
-            with open(prefit_posterior, "rb") as f:
-                pf = load(f, allow_pickle=True)
-                self.posts.append(pf)
-                self.proposal = pf
-                self.prefit = True
-            #with open(prefit_prior, "rb") as f:
-                #pf = load(f, allow_pickle=True)
-                #self.posts.append(pf)
-                self.params = self.proposal
-        else:
-            self.proposal = self.params
-            self.prefit = False
-
-        if x_obs is not None:
-            self.x_obs = x_obs
-            self.params.set_default_x(x_obs)

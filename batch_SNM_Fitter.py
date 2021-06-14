@@ -23,8 +23,7 @@ from loadNWB import *
 from utils import *
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-
+np.random.seed(42)
 def fit_cell(fp, optimizer, optimizer_settings):
     '''This is the primairy pass thru for cell fitting. It essentially takes a file path and optimizer keyword and tries to fit the cell
     _____
