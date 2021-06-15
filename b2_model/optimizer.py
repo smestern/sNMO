@@ -31,34 +31,19 @@ DEwithHam = ng.optimizers.Chaining([ng.optimizers.ScrHammersleySearch, ng.optimi
 
 
 
-class snmOptimizer():
+def snmOptimizer(params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs={}, skopt_kwargs={}, nevergrad_opt=DEwithHam, sbi_kwargs={}):
     ''' A backend agnostic optimizer, which should allow easier switching between skopt and nevergrad. internal optimizaion code handles returning the 
     params in a way that b2 models want  
     Takes:
     '''
-    def __init__(self, params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs={}, skopt_kwargs={}, nevergrad_opt=DEwithHam, sbi_kwargs={}):
-        if backend == 'ng':
-            self.opt = _internal_ng_opt(params_dict, batch_size, rounds, nevergrad_opt, nevergrad_kwargs=nevergrad_kwargs)
-            self.ask = self.opt.ask
-            self.tell = self.opt.tell
-            self.get_result = self.opt.get_result
-        elif backend == 'skopt':
-            self.opt = _internal_skopt(params_dict, batch_size, rounds)
-            self.ask = self.opt.ask
-            self.tell = self.opt.tell
-            self.get_result = self.opt.get_result
-        elif backend == 'sbi':
-            self.opt = _internal_SBI_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
-            self.ask = self.opt.ask
-            self.tell = self.opt.tell
-            self.get_result = self.opt.get_result
-            self.__dir__ = self.opt.__dir__
-    def ask():
-        pass
-    def tell():
-        pass
-    def get_result():
-        pass
+    if backend == 'ng':
+            return _internal_ng_opt(params_dict.copy(), batch_size, rounds, nevergrad_opt, nevergrad_kwargs=nevergrad_kwargs)  
+    elif backend == 'skopt':
+            return _internal_skopt(params_dict, batch_size, rounds)
+    elif backend == 'sbi':
+            return _internal_SBI_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
+            
+  
 
 class _internal_ng_opt():
     def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}):
@@ -152,7 +137,7 @@ class _internal_Ax_opt():
 
 class _internal_SBI_opt():
     ''''''
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000, prefit_posterior=None, prefit_prior=None):
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=500, prefit_posterior=None, prefit_prior=None):
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
@@ -182,6 +167,7 @@ class _internal_SBI_opt():
         if x_obs is not None:
             self.x_obs = x_obs
             self.params.set_default_x(x_obs)
+            self.proposal.set_default_x(x_obs)
         budget = (rounds * batch_size)
         self.opt = self.optimizer(prior=self.params)
         self._bool_sim_run = False
@@ -203,7 +189,11 @@ class _internal_SBI_opt():
     def ask(self, n_points=None):
         if n_points is None:
             n_points = self.batch_size
-        self.proposal.sample_with_mcmc = True
+        if self._bool_sim_run == False:
+            self.proposal.sample_with_mcmc = False
+            self._bool_sim_run == True
+        else:
+            self.proposal.sample_with_mcmc = True
         self.param_list = self.proposal.sample((n_points,)).numpy()
         self.param_dict = {}
         for row, (key, value) in zip(self.param_list.T, self._params.items()):
@@ -226,6 +216,7 @@ class _internal_SBI_opt():
             posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
         else:
             posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
+        self.x_posterior_samples = posterior_samples
         log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
         params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}

@@ -97,13 +97,13 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     global dt
     global spiking_sweeps
     global non_spiking_sweeps
-    sweeps_to_use = None
+    sweeps_to_use = [-70, -50, 50, 70]
     file_path = file
     
     realX, realY, realC,_ = loadNWB(file_path, old=False)
     index_3 = np.argmin(np.abs(realX[0,:]-2.50))
     ind_strt = np.argmin(np.abs((realX[0,:]-0.50)))
-    if sweep_upper_cut == None:
+    if sweep_upper_cut != None:
         realX, realY, realC = realX[:,ind_strt:index_3], realY[:,ind_strt:index_3], realC[:,ind_strt:index_3]
     elif sweeps_to_use != None:
         #load -70, -50, 50 70
@@ -196,23 +196,30 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     model.subthresholdSweep = [0,1,2]
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend='sbi', sbi_kwargs=dict(prefit_posterior='_post.pkl', x_obs=x_o))
     #set the default X, seems to speed up sampling
-    opt.opt.fit(model, id='test')
-
-    ##TODO maybe take the mode of the highest samples for each column?
+    opt.rounds = 4
+    opt.fit(model, id='test')
+    # get top 100 samples
+     ##TODO maybe take the mode of the highest samples for each column?
     #Take the 
-    results_out = {'Cm': params[0], 'taum':params[1], 'EL': params[2], 'a': params[3], 
-                    'tauw': params[4], 'VT': params[5], 'VR': params[6],
-                    'b': params[7]}
-    _labels = list(results_out.keys())
+    
+    samples = opt.ask(n_points=500)
+    log_prob = opt.posts[-1].log_prob(torch.tensor(opt.param_list), norm_posterior=False).numpy()
+    
+    top_100 = opt.param_list[np.argsort(log_prob[-10:])]
+   
     #Now run a few rounds of optimizer over the data
-    top_100 = posterior_samples.numpy()[np.argsort(log_prob)[-100:]] #get the most probable 100 samples
     high = np.apply_along_axis(np.amax,0, top_100) #take the high range of each column (each column is a different parameter)
     low = np.apply_along_axis(np.amin,0, top_100) #take the low range
     var_pairs = np.transpose(np.vstack((low, high))) #stack them into low->pairs for each row
+    for i, (key, val) in enumerate(optimizer_settings['constraints'][optimizer_settings['model_choice']].items()):
+        if key != 'units':
+            optimizer_settings['constraints'][optimizer_settings['model_choice']][key] = var_pairs[i]
+
+
     if run_ng:
-        results_out = _opt(model, var_pairs, _labels)  #returns a result containing the param - error matches
+        results_out = _opt(model, optimizer_settings)  #returns a result containing the param - error matches
     elif run_ng_phase:
-        results_out = biphase_opt(model, var_pairs,_labels)
+        results_out = biphase_opt(model, optimizer_settings)
     print("=== Saving Results ===")
     df = pd.DataFrame(results_out, index=[0])
     df.to_csv(f'output//{id}_spike_fit_opt_CSV.csv')
