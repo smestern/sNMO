@@ -137,7 +137,7 @@ class _internal_Ax_opt():
 
 class _internal_SBI_opt():
     ''''''
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=500, prefit_posterior=None, prefit_prior=None):
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=1500, prefit_posterior=None, prefit_prior=None):
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
@@ -191,7 +191,7 @@ class _internal_SBI_opt():
             n_points = self.batch_size
         if self._bool_sim_run == False:
             self.proposal.sample_with_mcmc = False
-            self._bool_sim_run == True
+            self._bool_sim_run = True
         else:
             self.proposal.sample_with_mcmc = True
         self.param_list = self.proposal.sample((n_points,)).numpy()

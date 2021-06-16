@@ -98,7 +98,7 @@ if __name__ == "__main__": ##If the script is called from the command line this 
                         help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//pfc//'))
     parser.add_argument('--outputFolder', type=str,
                         help='the output folder for the generated data', default= _dir +'//output//')
-    parser.add_argument('--optimizer', type=str, default='sbi',
+    parser.add_argument('--optimizer', type=str, default='ng',
                         help='the optimizer to use', required=False)
     parser.add_argument('--parallel', type=int, default=-1,
                         help='number of threads to use (one cell per thread)', required=False)

@@ -64,6 +64,10 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds_=500, batch_s
     batch_size=batch_size_
     model = load_data_and_model(file, optimizer_settings, sweep_upper_cut=sweep_upper_cut) #load the nwb and model
     cell_id = file.split("\\")[-1].split(".")[0] #grab the cell id by cutting around the file path
+    #adjust the constraints to the found CM or TAUM
+    optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
+    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.99, model.C*1.01]
+    optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.99, model.taum*1.01]
     print(f"== Loaded cell {cell_id} for fitting ==")
     if optimizer == 'skopt' or optimizer=='ng':
         results = _opt(model, optimizer_settings, optimizer=optimizer, id=cell_id)
@@ -188,10 +192,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     np_o = np.hstack((real_fi, real_rmp, real_subt, real_min))
     x_o = torch.tensor(np.hstack((real_fi, real_rmp, real_subt, real_min)), dtype=torch.float32)
     
-    #adjust the constraints to the found CM or TAUM
-    optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
-    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.99, model.C*1.01]
-    optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.99, model.taum*1.01]
+    
 
     model.subthresholdSweep = [0,1,2]
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend='sbi', sbi_kwargs=dict(prefit_posterior='_post.pkl', x_obs=x_o))
@@ -203,7 +204,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     #Take the 
     
     samples = opt.ask(n_points=500)
-    log_prob = opt.posts[-1].log_prob(torch.tensor(opt.param_list), norm_posterior=False).numpy()
+    log_prob = opt.posts[-1].log_prob(torch.tensor(opt.param_list), norm_posterior=True).numpy()
     
     top_100 = opt.param_list[np.argsort(log_prob[-10:])]
    
@@ -249,11 +250,6 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
         model.set_params({'N': batch_size})
         budget = int(rounds * batch_size)
 
-        #adjust the constraints to the found CM or TAUM
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.1, model.EL*0.90]
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.90, model.C*1.1]
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.90, model.taum*1.10]
-
 
         opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), batch_size, rounds, backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
         error_calc = weightedErrorMetric(weights=[1000, 1])
@@ -268,7 +264,7 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
             print(f"sim {(time.time()-t_start)/60} min start")
             _, error_t, error_fi, error_isi, error_s = model.opt_full_mse(param_dict)
             test = error_calc.transform(np.vstack([error_fi, error_t]).T)
-            error_fi = np.nan_to_num(error_fi, nan=999999) * 500
+            error_fi = np.nan_to_num(error_fi, nan=999999) * 250
             error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
             y = error_t + error_fi + error_s
             y = np.nan_to_num(y, nan=999999)
