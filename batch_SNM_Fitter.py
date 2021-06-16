@@ -57,7 +57,7 @@ def main(args, optimizer_settings):
     _path = glob.glob(args.inputFolder + '*.nwb') #Glob allows unix like indexing. This tells it to look for all nwb files in the folder 
     prefit = glob.glob(args.outputFolder + '**//*.csv', recursive=True) #
     prefit_ids = [os.path.basename(x).split("_s")[0] for x in prefit]
-    NWB_to_fit = np.random.choice(_path, 1500).tolist()
+    NWB_to_fit = _path #np.random.choice(_path, 1500).tolist()
     
     files_to_use = []
     for fp in NWB_to_fit:

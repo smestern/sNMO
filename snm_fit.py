@@ -66,8 +66,8 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds_=500, batch_s
     cell_id = file.split("\\")[-1].split(".")[0] #grab the cell id by cutting around the file path
     #adjust the constraints to the found CM or TAUM
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
-    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.99, model.C*1.01]
-    optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.99, model.taum*1.01]
+    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.90, model.C*1.10]
+    optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.90, model.taum*1.10]
     print(f"== Loaded cell {cell_id} for fitting ==")
     if optimizer == 'skopt' or optimizer=='ng':
         results = _opt(model, optimizer_settings, optimizer=optimizer, id=cell_id)
@@ -101,7 +101,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     global dt
     global spiking_sweeps
     global non_spiking_sweeps
-    sweeps_to_use = [-70, -50, 50, 70]
+    sweeps_to_use = None  
     file_path = file
     
     realX, realY, realC,_ = loadNWB(file_path, old=False)
