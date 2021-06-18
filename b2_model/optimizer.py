@@ -166,8 +166,11 @@ class _internal_SBI_opt():
 
         if x_obs is not None:
             self.x_obs = x_obs
-            self.params.set_default_x(x_obs)
-            self.proposal.set_default_x(x_obs)
+            try:
+                self.params.set_default_x(x_obs)
+                self.proposal.set_default_x(x_obs)
+            except:
+                pass
         budget = (rounds * batch_size)
         self.opt = self.optimizer(prior=self.params)
         self._bool_sim_run = False

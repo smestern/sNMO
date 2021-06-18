@@ -33,7 +33,7 @@ def fit_cell(fp, optimizer, optimizer_settings):
     try:
         cell_id = fp.split("\\")[-1].split(".")[0]
         
-        realX, realY, realC,_ = loadNWB(fp, old=True)
+        realX, realY, realC,_ = loadNWB(fp, old=False)
         
         spikes = detect_spike_times(realX, realY, realC)
         sweep_upper = find_decline_fi(spikes)
@@ -95,7 +95,7 @@ if __name__ == "__main__": ##If the script is called from the command line this 
 
     _dir = os.path.dirname(__file__)
     parser.add_argument('--inputFolder', type=str, 
-                        help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//pfc//'))
+                        help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//v1//'))
     parser.add_argument('--outputFolder', type=str,
                         help='the output folder for the generated data', default= _dir +'//output//')
     parser.add_argument('--optimizer', type=str, default='ng',

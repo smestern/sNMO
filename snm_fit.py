@@ -180,7 +180,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     real_rmp = compute_rmp(model.realY, model.realC)
     real_min = []
     real_subt = []
-    for x in [0,1,2]:
+    for x in  model.subthresholdSweep :
         temp = compute_steady_hyp(model.realY[x, :].reshape(1,-1), model.realC[x, :].reshape(1,-1))
         temp_min = compute_min_stim(model.realY[x, :], model.realX[x,:], strt=0.62, end=1.2)
         real_subt.append(temp)
@@ -194,8 +194,8 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     
     
 
-    model.subthresholdSweep = [0,1,2]
-    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend='sbi', sbi_kwargs=dict(prefit_posterior='_post.pkl', x_obs=x_o))
+    #model.subthresholdSweep = None
+    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend='sbi', sbi_kwargs=dict(x_obs=x_o))
     #set the default X, seems to speed up sampling
     opt.rounds = 4
     opt.fit(model, id='test')
@@ -204,7 +204,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     #Take the 
     
     samples = opt.ask(n_points=500)
-    log_prob = opt.posts[-1].log_prob(torch.tensor(opt.param_list), norm_posterior=True).numpy()
+    log_prob = opt.posts[-1].log_prob(torch.tensor(opt.param_list), norm_posterior=False).numpy()
     
     top_100 = opt.param_list[np.argsort(log_prob[-10:])]
    
