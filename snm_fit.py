@@ -26,7 +26,7 @@ from scipy import stats
 
 from b2_model.brian2_model import brian2_model
 from b2_model.error import weightedErrorMetric, zErrorMetric
-from b2_model.optimizer import CustomPortfolio, snmOptimizer
+from b2_model.optimizer import snmOptimizer
 from loadNWB import *
 from utils import *
 
@@ -69,7 +69,7 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds_=500, batch_s
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.90, model.C*1.10]
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.90, model.taum*1.10]
     print(f"== Loaded cell {cell_id} for fitting ==")
-    if optimizer == 'skopt' or optimizer=='ng':
+    if optimizer == 'skopt' or optimizer=='ng' or optimizer=='ax':
         results = _opt(model, optimizer_settings, optimizer=optimizer, id=cell_id)
     elif optimizer == 'snpe'  or optimizer=='sbi': 
         results = SNPE_OPT(model, optimizer_settings, id=cell_id)

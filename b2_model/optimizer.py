@@ -2,7 +2,7 @@ import logging
 import sys
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO) #trying to log brian2 errors
-logger = logging.getLogger(__name__)
+
 import argparse
 import os
 from collections import OrderedDict
@@ -21,9 +21,13 @@ from sbi.inference.base import infer
 from skopt import Optimizer, plots, space
 from utils import *
 
-from b2_model.adIF import adIFModel
 from b2_model.error import weightedErrorMetric
-
+try:
+    from ax.service.ax_client import AxClient
+    from ax.modelbridge.generation_strategy import GenerationStrategy, GenerationStep
+    from ax.modelbridge.registry import Models
+except:
+    logging.WARNING("Ax not installed, ax optimizer unavailible")
 default_dtype = torch.float32
 
 TBPSAwithHam = ng.optimizers.Chaining([ng.optimizers.ScrHammersleySearch, ng.optimizers.NaiveTBPSA], ["num_workers"])
@@ -42,6 +46,8 @@ def snmOptimizer(params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs
             return _internal_skopt(params_dict, batch_size, rounds)
     elif backend == 'sbi':
             return _internal_SBI_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
+    elif backend == 'ax':
+            return _internal_Ax_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
             
   
 
@@ -128,10 +134,73 @@ class _internal_skopt():
         return param_dict
 
 class _internal_Ax_opt():
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000):
+    def __init__(self, params_dict, batch_size, rounds, device_gp='cuda'):
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
+        self.rounds = rounds
+        self.batch_size = batch_size
+        gs = self._build_gs()
+        self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=gs)
+        self.opt.create_experiment(parameters=self.params, choose_generation_strategy_kwargs={"max_parallelism_override": batch_size}, objective_name='snm_fit')
+
+    def _build_params_space(self):
+        self.params = []
+        for key, val in self._params.items():
+            self.params.append({'name': key, 'type': 'range', 'bounds': [float(val[0]), float(val[1])]})
+
+    def _build_gs(self):
+        
+        gs = GenerationStrategy(
+            steps=[
+                # I omit a few settings when copying from the auto-selected generation strategy above, since those
+                # settings are just the defaults, but you can include them too if you'd like. Refer to the docs on
+                # `GenerationStep` for meanings of these settings: 
+                # https://ax.dev/api/modelbridge.html#ax.modelbridge.generation_strategy.GenerationStep
+                GenerationStep(
+                    model=Models.SOBOL, 
+                    num_trials=self.batch_size, 
+                    min_trials_observed=3, 
+                    model_kwargs={'deduplicate': True, 'seed': None}, 
+                ),
+                GenerationStep(
+                    model=Models.GPEI,
+                    num_trials=-1,
+                    max_parallelism=self.batch_size,  # Can set higher parallelism if needed
+                    model_kwargs = {"torch_dtype": torch.float, "torch_device": torch.device("cuda")}
+                )
+            ]
+        )
+        return gs
+    
+    def ask(self, n_points=None):
+        if n_points is None:
+            n_points = self.batch_size
+        self.points_list = []
+        self.param_list =[]
+        for p in np.arange(n_points):
+                parameters, trial_index = self.opt.get_next_trial()
+                self.param_list.append(parameters)
+                self.points_list.append((parameters, trial_index))
+        param_list = pd.DataFrame(self.param_list)
+            
+        param_dict = param_list.to_dict('list')
+        for i, (key, val) in enumerate(param_dict.items()):
+            param_dict[key] = val * self._units[i]
+        return param_dict
+    def tell(self, points, errors):
+        #assume its coming back in with the same number of points
+        #otherwise this will break
+        assert errors.shape[0] == len(self.points_list)
+        for i, row in enumerate(self.points_list):
+            self.opt.complete_trial(trial_index=row[1], raw_data={'snm_fit': errors[i]})
+    def get_result(self, with_units=True):
+        best_parameters, values = self.opt.get_best_parameters()
+        best_val={}
+        if with_units:
+            for i, (key, val) in enumerate(best_parameters.items()):
+                best_val[key] = val * self._units[i]
+        return best_val
 
 
 
@@ -303,40 +372,3 @@ def plot_feature_curve(x_o, model, res):
 
 
 
-#deprecated
-
-class CustomPortfolio(ng.optimizers.Portfolio):
-    """"""
-
-    def __init__(self, parametrization, budget = None, num_workers = 1, optimizers = None) -> None:
-        super().__init__(parametrization, budget=budget, num_workers=num_workers)
-        assert budget is not None
-
-        if optimizers  is None:
-            optimizers = [
-            ng.optimizers.CMA, 
-            ng.optimizers.TwoPointsDE, 
-            ng.optimizers.PSO,
-            ng.optimizers.NaiveIsoEMNA,  
-            ng.optimizers.ScrHammersleySearch,
-            np.optimizers.SQP
-        ]
-
-        def intshare(n: int, m: int):
-            x = [n // m] * m
-            i = 0
-            while sum(x) < n:
-                x[i] += 1
-                i += 1
-            return tuple(x)
-
-        #parallel opt check
-        parallel_opt = [x.n]
-
-        nws = intshare(num_workers, len(optimizers))
-        self.which_optim = []
-        for i, nw in enumerate(nws): #Using List comprehension did not work for whatever reason
-            self.which_optim += [i] * nw
-
-        assert len(self.which_optim) == num_workers
-        self.optims: tp.List[base.Optimizer] = [opt(self.parametrization, num_workers=nw, budget=(budget // len(self.which_optim)) * nw) for opt, nw in zip(optimizers, nws)]

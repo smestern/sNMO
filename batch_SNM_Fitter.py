@@ -30,7 +30,7 @@ def fit_cell(fp, optimizer, optimizer_settings):
     takes:
     fp (str): a file path arguement pointing towards a single nwb
     optimizer (str): the string stating which optimizer to use'''
-    try:
+    if True: #try:
         cell_id = fp.split("\\")[-1].split(".")[0]
         
         realX, realY, realC,_ = loadNWB(fp, old=False)
@@ -41,7 +41,7 @@ def fit_cell(fp, optimizer, optimizer_settings):
         temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds_=200, batch_size_=500, optimizer=optimizer, sweep_upper_cut=None)
         temp_df['id'] = [cell_id]
         return temp_df
-    except Exception as e:
+    #except Exception as e:
         print(f"fail to fit {fp} with exception")
         print(e.args)
         return pd.DataFrame()
