@@ -49,10 +49,30 @@ def snmOptimizer(params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs
     elif backend == 'ax':
             return _internal_Ax_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
             
-  
+class snMOptimizer():
+    def __init__():
+        pass
+    def ask():
+        pass
+    def tell():
+        pass
+    def get_result():
+        pass
+    def attach_units(self, param_dict):
+        if isinstance(param_dict, list):
+            new_list = []
+            for row in param_dict:
+                for i, (key, val) in enumerate(row.items()):
+                    row[key] = val * self._units[i]
+                new_list.append(row)
+            param_dict = new_list
+        elif isinstance(param_dict, dict):
+            for i, (key, val) in enumerate(param_dict.items()):
+                param_dict[key] = val * self._units[i]
+        return param_dict
 
-class _internal_ng_opt():
-    def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}):
+class _internal_ng_opt(snMOptimizer):
+    def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}, batch_trials=False, include_units=True):
         #Build Params
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
@@ -62,6 +82,8 @@ class _internal_ng_opt():
         self.batch_size = batch_size
         self.optimizer = optimizer
         budget = (rounds * batch_size)
+        self.batch_trials = batch_trials
+        self.include_units = include_units
         self.opt = self.optimizer(parametrization=self.params, num_workers=batch_size, budget=budget, **nevergrad_kwargs)
     def _build_params_space(self):
         ## Params should be a dict
@@ -80,10 +102,12 @@ class _internal_ng_opt():
                 self.param_list.append(temp.value)
                 self.points_list.append(temp)
         param_list = pd.DataFrame(self.param_list)
-            
-        param_dict = param_list.to_dict('list')
-        for i, (key, val) in enumerate(param_dict.items()):
-            param_dict[key] = val * self._units[i]
+        if self.batch_trials: 
+            param_dict = param_list.to_dict('list')
+        else:
+            param_dict = param_list.to_dict('records')
+        if self.include_units:
+            param_dict = self.attach_units(param_dict)
         return param_dict
     def tell(self, points, errors):
         #assume its coming back in with the same number of points
@@ -132,17 +156,41 @@ class _internal_skopt():
         for label, value in zip(self._param_labels, out):
             param_dict[label] = value
         return param_dict
-
+from ax import *
 class _internal_Ax_opt():
+    class dummy_metric(Metric):
+        def __init__(self, parent_obj):
+            self.parent = parent_obj
+        def fetch_trial_data(self, trial):  
+            records = []
+            for arm_name, arm in trial.arms_by_name.items():
+                params = arm.parameters
+                records.append({
+                    "arm_name": arm_name,
+                    "metric_name": self.name,
+                    "mean": (params["x1"] + 2*params["x2"] - 7)**2 + (2*params["x1"] + params["x2"] - 5)**2,
+                    "sem": 0.0,
+                    "trial_index": trial.index,
+                })
+            return Data(df=pd.DataFrame.from_records(records))
+
+    class dummy_runner(Runner):
+            def run(self, trial):
+                return {"name": str(trial.index)}
+
     def __init__(self, params_dict, batch_size, rounds, device_gp='cuda'):
+        
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
         self.rounds = rounds
         self.batch_size = batch_size
-        gs = self._build_gs()
+        self.gs = self._build_gs()
         self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=gs)
+        self.exp = Experiment(name='snm_fitting', search_space=SearchSpace)
         self.opt.create_experiment(parameters=self.params, choose_generation_strategy_kwargs={"max_parallelism_override": batch_size}, objective_name='snm_fit')
+        
+        self.exp.runner = dummy_runner()
 
     def _build_params_space(self):
         self.params = []
@@ -160,14 +208,16 @@ class _internal_Ax_opt():
                 GenerationStep(
                     model=Models.SOBOL, 
                     num_trials=self.batch_size, 
-                    min_trials_observed=3, 
+                    min_trials_observed=self.batch_size, 
                     model_kwargs={'deduplicate': True, 'seed': None}, 
+                    model_gen_kwargs={'n':self.batch_size},  # Any kwargs you want passed to `modelbridge.gen`
                 ),
                 GenerationStep(
                     model=Models.GPEI,
                     num_trials=-1,
                     max_parallelism=self.batch_size,  # Can set higher parallelism if needed
-                    model_kwargs = {"torch_dtype": torch.float, "torch_device": torch.device("cuda")}
+                    model_kwargs = {"torch_dtype": torch.float, "torch_device": torch.device("cuda")},
+                    model_gen_kwargs={'n': self.batch_size},  # Any kwargs you want passed to `modelbridge.gen`
                 )
             ]
         )
@@ -193,7 +243,7 @@ class _internal_Ax_opt():
         #otherwise this will break
         assert errors.shape[0] == len(self.points_list)
         for i, row in enumerate(self.points_list):
-            self.opt.complete_trial(trial_index=row[1], raw_data={'snm_fit': errors[i]})
+            self.opt.complete_trial(trial_index=row[1], raw_data={'snm_fit': (errors[i], 0.0)})
     def get_result(self, with_units=True):
         best_parameters, values = self.opt.get_best_parameters()
         best_val={}
