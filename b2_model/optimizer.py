@@ -159,24 +159,24 @@ class _internal_skopt():
 from ax import *
 class _internal_Ax_opt():
     class dummy_metric(Metric):
-        def __init__(self, parent_obj):
-            self.parent = parent_obj
         def fetch_trial_data(self, trial):  
             records = []
-            for arm_name, arm in trial.arms_by_name.items():
+            for i, (arm_name, arm) in enumerate(trial.arms_by_name.items()):
                 params = arm.parameters
                 records.append({
                     "arm_name": arm_name,
                     "metric_name": self.name,
-                    "mean": (params["x1"] + 2*params["x2"] - 7)**2 + (2*params["x1"] + params["x2"] - 5)**2,
+                    "mean": trial.run_metadata['snm_error'][i],
                     "sem": 0.0,
                     "trial_index": trial.index,
                 })
             return Data(df=pd.DataFrame.from_records(records))
 
     class dummy_runner(Runner):
+            def __init__(self, parent_obj):
+                self.parent_obj = parent_obj
             def run(self, trial):
-                return {"name": str(trial.index)}
+                return {"name": str(trial.index), "snm_error": self.parent_obj._error}
 
     def __init__(self, params_dict, batch_size, rounds, device_gp='cuda'):
         
@@ -186,16 +186,25 @@ class _internal_Ax_opt():
         self.rounds = rounds
         self.batch_size = batch_size
         self.gs = self._build_gs()
-        self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=gs)
-        self.exp = Experiment(name='snm_fitting', search_space=SearchSpace)
-        self.opt.create_experiment(parameters=self.params, choose_generation_strategy_kwargs={"max_parallelism_override": batch_size}, objective_name='snm_fit')
-        
-        self.exp.runner = dummy_runner()
+        self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=self.gs)
+        self.exp = Experiment(name='snm_fitting', search_space=SearchSpace(parameters=self.params))
+        #self.opt.create_experiment(parameters=self.params, choose_generation_strategy_kwargs={"max_parallelism_override": batch_size}, objective_name='snm_fit')
+        self.metric = _internal_Ax_opt.dummy_metric(name="booth")
+        optimization_config = OptimizationConfig(
+                objective = Objective(
+                    metric=self.metric, 
+                    minimize=True,
+                ),
+                )
+        self.exp.runner = _internal_Ax_opt.dummy_runner(parent_obj=self)
+        self.exp.optimization_config = optimization_config
+        self.model = Models.SOBOL
+        self._internal_run_count = int(-1)
 
     def _build_params_space(self):
         self.params = []
         for key, val in self._params.items():
-            self.params.append({'name': key, 'type': 'range', 'bounds': [float(val[0]), float(val[1])]})
+            self.params.append(RangeParameter(name=key, lower=float(val[0]), upper=float(val[1]), parameter_type=ParameterType.FLOAT))
 
     def _build_gs(self):
         
@@ -210,7 +219,7 @@ class _internal_Ax_opt():
                     num_trials=self.batch_size, 
                     min_trials_observed=self.batch_size, 
                     model_kwargs={'deduplicate': True, 'seed': None}, 
-                    model_gen_kwargs={'n':self.batch_size},  # Any kwargs you want passed to `modelbridge.gen`
+                    # Any kwargs you want passed to `modelbridge.gen`
                 ),
                 GenerationStep(
                     model=Models.GPEI,
@@ -226,33 +235,47 @@ class _internal_Ax_opt():
     def ask(self, n_points=None):
         if n_points is None:
             n_points = self.batch_size
+        self._internal_run_count +=1
         self.points_list = []
         self.param_list =[]
-        for p in np.arange(n_points):
-                parameters, trial_index = self.opt.get_next_trial()
-                self.param_list.append(parameters)
-                self.points_list.append((parameters, trial_index))
+        self.points_list = self.gs.gen(experiment=self.exp, n=n_points)
+        for a in self.points_list.arms:
+            self.param_list.append(a.parameters)
         param_list = pd.DataFrame(self.param_list)
             
         param_dict = param_list.to_dict('list')
         for i, (key, val) in enumerate(param_dict.items()):
             param_dict[key] = val * self._units[i]
+        self.exp.new_batch_trial(generator_run=self.points_list)
         return param_dict
+   
     def tell(self, points, errors):
         #assume its coming back in with the same number of points
         #otherwise this will break
-        assert errors.shape[0] == len(self.points_list)
-        for i, row in enumerate(self.points_list):
-            self.opt.complete_trial(trial_index=row[1], raw_data={'snm_fit': (errors[i], 0.0)})
+        #assert errors.shape[0] == len(self.points_list)
+        self._error = errors
+        self.exp.trials[self._internal_run_count].run().mark_completed()
+        data = self.exp.fetch_data()
+        
     def get_result(self, with_units=True):
-        best_parameters, values = self.opt.get_best_parameters()
+        best_parameters = self.find_best_parameters()
         best_val={}
         if with_units:
             for i, (key, val) in enumerate(best_parameters.items()):
                 best_val[key] = val * self._units[i]
         return best_val
 
-
+    def find_best_parameters(self):
+        data = self.exp.fetch_data().df
+        # get the error
+        error = data['mean'].to_numpy()
+        min_idx = np.argmin(error)
+        #get the trial and arm name of min
+        arm_name = data['arm_name'].to_numpy()[min_idx]
+        trial_index = data['trial_index'].to_numpy()[min_idx]
+        #get those params
+        param_dict = self.exp.arms_by_name[arm_name].parameters
+        return param_dict
 
 class _internal_SBI_opt():
     ''''''
