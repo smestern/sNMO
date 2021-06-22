@@ -159,7 +159,7 @@ def exp_decay_factor(dataT,dataV,dataI, time_aft=50, plot=False, sag=True):
             upperC = np.amax(dataV[downwardinfl:end_index])
             lowerC = np.amin(dataV[downwardinfl:end_index])
             minpoint = np.argmin(dataV[downwardinfl:end_index])
-            end_index = downwardinfl + int(.95 * minpoint)
+            end_index = downwardinfl + int(.99 * minpoint)
             downwardinfl = downwardinfl #+ int(.10 * minpoint)
         else:
             diff_I = np.diff(dataI)
@@ -170,13 +170,12 @@ def exp_decay_factor(dataT,dataV,dataI, time_aft=50, plot=False, sag=True):
             lowerC = np.amin(dataV[downwardinfl:end_index])
         diff = np.abs(upperC - lowerC)
         t1 = dataT[downwardinfl:end_index] - dataT[downwardinfl]
-        SpanFast=(upperC-lowerC)*1*.01
         curve, pcov_1p = curve_fit(exp_decay_1p, t1, dataV[downwardinfl:end_index]/1000, maxfev=500000, bounds=([(upperC-5)/1000, -np.inf, 0], [(upperC+5)/1000, np.inf, np.inf]), xtol=None, verbose=1)
         tau = curve[2]
         if plot:
             plt.figure(2)
             plt.clf()
-            plt.plot(dataT[downwardinfl:end_index+2000], dataV[downwardinfl:end_index+2000]/1000, label='Data')
+            plt.plot(t1, dataV[downwardinfl:end_index]/1000, label='Data')
             plt.plot(t1, exp_decay_1p(t1, *curve), label='1 phase fit')
             
             plt.legend()

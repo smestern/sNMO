@@ -73,7 +73,7 @@ class snMOptimizer():
         return param_dict
 
 class _internal_ng_opt(snMOptimizer):
-    def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}, batch_trials=False, include_units=True):
+    def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}, batch_trials=True, include_units=True):
         #Build Params
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
@@ -323,13 +323,18 @@ class _internal_Ax_opt():
             def run(self, trial):
                 return {"name": str(trial.index), "snm_error": self.parent_obj._error}
 
-    def __init__(self, params_dict, batch_size, rounds, device_gp='cuda'):
+    def __init__(self, params_dict, batch_size, rounds, device_gp='cuda', num_sobol=3):
         
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
         self.rounds = rounds
         self.batch_size = batch_size
+        if device_gp=='cuda':
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = torch.device("cpu")
+        self.num_sobol = num_sobol
         self.gs = self._build_gs()
         self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=self.gs)
         self.exp = Experiment(name='snm_fitting', search_space=SearchSpace(parameters=self.params))
@@ -361,8 +366,8 @@ class _internal_Ax_opt():
                 # https://ax.dev/api/modelbridge.html#ax.modelbridge.generation_strategy.GenerationStep
                 GenerationStep(
                     model=Models.SOBOL, 
-                    num_trials=self.batch_size, 
-                    min_trials_observed=self.batch_size, 
+                    num_trials=self.batch_size*self.num_sobol, 
+                    min_trials_observed=self.batch_size*self.num_sobol, 
                     model_kwargs={'deduplicate': True, 'seed': None}, 
                     # Any kwargs you want passed to `modelbridge.gen`
                 ),
@@ -370,8 +375,7 @@ class _internal_Ax_opt():
                     model=Models.GPEI,
                     num_trials=-1,
                     max_parallelism=self.batch_size,  # Can set higher parallelism if needed
-                    model_kwargs = {"torch_dtype": torch.float, "torch_device": torch.device("cuda")},
-                    model_gen_kwargs={'n': self.batch_size},  # Any kwargs you want passed to `modelbridge.gen`
+                    model_kwargs = {"torch_dtype": torch.float, "torch_device": self.device},
                 )
             ]
         )

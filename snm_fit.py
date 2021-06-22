@@ -103,7 +103,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     global non_spiking_sweeps
     sweeps_to_use = None  
     file_path = file
-    
+    cell_id = file.split("\\")[-1].split(".")[0] #grab the cell id by cutting around the file path
     realX, realY, realC,_ = loadNWB(file_path, old=False)
     index_3 = np.argmin(np.abs(realX[0,:]-2.50))
     ind_strt = np.argmin(np.abs((realX[0,:]-0.50)))
@@ -143,6 +143,8 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     #Compute cell params
     resistance = membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
     taum = exp_decay_factor(realX[0], realY[0], realC[0], plot=True)
+    plt.title(f"{taum*1000} ms taum")
+    plt.savefig(f"output//{cell_id}_taum_fit.png")
     Cm = (mem_cap((resistance*Gohm)/ohm, taum)) * farad
     Cm = Cm/pF
     taum *=1000
