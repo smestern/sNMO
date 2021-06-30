@@ -20,7 +20,7 @@ from scipy import stats
 import json
 import snm_fit as snm_fit
 from loadNWB import *
-from utils import *
+import utils as ut
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 np.random.seed(400)
@@ -35,8 +35,8 @@ def fit_cell(fp, optimizer, optimizer_settings):
         
         realX, realY, realC,_ = loadNWB(fp, old=False)
         
-        spikes = detect_spike_times(realX, realY, realC)
-        sweep_upper = find_decline_fi(spikes)
+        spikes = ut.detect_spike_times(realX, realY, realC)
+        sweep_upper = ut.find_decline_fi(spikes)
         most_spikes = len(max(spikes, key=len))
         temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds_=200, batch_size_=500, optimizer=optimizer, sweep_upper_cut=None)
         temp_df['id'] = [cell_id]

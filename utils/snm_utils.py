@@ -453,61 +453,6 @@ def add_spikes_to_voltage(spike_times,voltmonitor, peak=33, index=0):
     return traces_v
              
 
-
-def LIF(file, C, g, sweepnum):
-    dataX, dataY, dataC = loadNWB(file, return_obj=False)
-    dt = compute_dt(dataX)
-    dur = size(dataX, 1) * dt
-    # E = compute_rmp(dataY, dataC) * mV
-    E = np.mean(dataY[sweepnum, 0:2781]) * mV
-
-    inpt = TimedArray(dataC[sweepnum, :] * pamp, dt=dt * ms)
-
-    eqs = '''
-    dv/dt = (-g*(v-E)+I)/C : volt
-    I = inpt(t) : amp
-    '''
-    G = NeuronGroup(1, eqs, threshold='v>-45*mV', reset='v=-47*mV')
-    M = StateMonitor(G, 'v', record=True)
-    G.v = E
-
-    run(dur * ms)
-    t = M.t / ms / 1000
-    v = M.v / mV
-
-    vhat = array(dataY[sweepnum])
-    vhat = reshape(vhat, shape(v))
-
-    mse = compute_mse(v, vhat)
-
-    return mse, t, v
-
-
-def adIF(file, C, g, a, tauw, sweepnum):
-    dataX, dataY, dataC = loadNWB(file, return_obj=False)
-    dt = compute_dt(dataX)
-    # dur = size(dataX, 1) * dt
-    # E = compute_rmp(dataY, dataC) * mV
-    E = np.mean(dataY[sweepnum, 0:2781]) * mV
-
-    inpt = TimedArray(dataC[sweepnum, :] * pamp, dt=dt * ms)
-
-    eqs = '''
-    dv/dt = (-g*(v-E)+I-w)/C : volt
-    dw/dt = (a*(v-E)-w)/tauw : amp
-    I = inpt(t) : amp
-    '''
-    G = NeuronGroup(1, eqs)
-    M = StateMonitor(G, ('v', 'w'), record=True)
-    G.v = E
-
-    run(5 * second)
-    t = M.t / ms / 1000
-    v = M.v / mV
-    w = M.w
-
-    return t, v, w
-
 def sweepwise_qc(x, y, c):
     #remove sweeps with a voltage value outside a range of -90, -40
     sweep_wise_mode = np.apply_along_axis(compute_distro_mode, 1, y, bin=5)

@@ -25,7 +25,6 @@ from sbi.inference.base import infer
 from scipy import stats
 
 from b2_model.brian2_model import brian2_model
-from b2_model.error import weightedErrorMetric, zErrorMetric
 from b2_model.optimizer import snmOptimizer
 from loadNWB import *
 from utils import *
@@ -254,7 +253,6 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
 
 
         opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), batch_size, rounds, backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
-        error_calc = weightedErrorMetric(weights=[1000, 1])
         min_ar = []
         print(f"== Starting Optimizer with {rounds} rounds ===")
         for i in np.arange(rounds):
@@ -265,7 +263,6 @@ def _opt(model, optimizer_settings, optimizer='ng', id='nan'):
             param_dict = param_list
             print(f"sim {(time.time()-t_start)/60} min start")
             _, error_t, error_fi, error_isi, error_s = model.opt_full_mse(param_dict)
-            test = error_calc.transform(np.vstack([error_fi, error_t]).T)
             error_fi = np.nan_to_num(error_fi, nan=999999) * 250
             error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
             y = error_t + error_fi + error_s

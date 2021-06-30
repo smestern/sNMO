@@ -21,7 +21,6 @@ from sbi.inference.base import infer
 from skopt import Optimizer, plots, space
 from utils import *
 
-from b2_model.error import weightedErrorMetric
 try:
     from ax import *
     from ax.service.ax_client import AxClient
