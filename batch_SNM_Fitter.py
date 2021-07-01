@@ -23,7 +23,7 @@ from loadNWB import *
 import utils as ut
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-np.random.seed(400)
+np.random.seed(46)
 def fit_cell(fp, optimizer, optimizer_settings):
     '''This is the primairy pass thru for cell fitting. It essentially takes a file path and optimizer keyword and tries to fit the cell
     _____
@@ -95,10 +95,10 @@ if __name__ == "__main__": ##If the script is called from the command line this 
 
     _dir = os.path.dirname(__file__)
     parser.add_argument('--inputFolder', type=str, 
-                        help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//v1//'))
+                        help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//pfc//'))
     parser.add_argument('--outputFolder', type=str,
                         help='the output folder for the generated data', default= _dir +'//output//')
-    parser.add_argument('--optimizer', type=str, default='ax',
+    parser.add_argument('--optimizer', type=str, default='ng',
                         help='the optimizer to use', required=False)
     parser.add_argument('--parallel', type=int, default=-1,
                         help='number of threads to use (one cell per thread)', required=False)

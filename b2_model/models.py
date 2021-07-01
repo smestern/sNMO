@@ -23,9 +23,9 @@ adEx = dict(eqs=Equations('''
 asqEx = dict(eqs=Equations('''
         dv/dt = ( gL*(EL-v) + gL*DeltaT*exp((v - V_T)/DeltaT) + I - w ) * (1./C) : volt
         dw/dt = ( a*(v - EL) - w ) / tauw : amp
-        dV_T/dt = (VT - V_T)/tauVT : volt
+        dV_T/dt = (V_T - VT)/tauVT : volt
         Vcut = VT + (DeltaT * 5) : volt (constant over dt)
-        gL = C/taum : siemens
+        gL = C/taum : siemens (constant over dt)
         tauw : second
         tauVT : second
         a : siemens
