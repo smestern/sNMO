@@ -5,8 +5,8 @@ from brian2 import *
 adEx = dict(eqs=Equations('''
         dv/dt = ( gL*(EL-v) + gL*DeltaT*exp((v - VT)/DeltaT) + I - w ) * (1./C) : volt
         dw/dt = ( a*(v - EL) - w ) / tauw : amp
-        Vcut = VT + (DeltaT * 5) : volt
-        gL = C/taum : siemens
+        Vcut = VT + (DeltaT * 5) : volt (constant over dt)
+        gL = C/taum : siemens (constant over dt)
         tauw : second
         a : siemens
         b : amp

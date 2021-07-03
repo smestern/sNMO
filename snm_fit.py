@@ -135,7 +135,6 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     rheobase = spiking_sweeps[0]
     non_spiking_sweeps = np.delete(np.arange(0, realX.shape[0]), spiking_sweeps)[:2]
     thres = compute_threshold(realX, realY, realC, sweeplim)
-
     #negative current sweeps 
     neg_current = [x<0 for x in realC[:, np.argmin(np.abs(realX-0.5))]]
     neg_current = np.arange(0, realX.shape[0])[neg_current]
