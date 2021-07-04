@@ -181,7 +181,7 @@ class brian2_model(object):
                error_s = np.vstack((error_s, np.hstack(sweep_error_s)))
                temp_min = np.apply_along_axis(compute_min_stim, 1, (traces.v /mV), traces[0].t/second, strt=0.2, end=1.2)
                real_min = compute_min_stim(self.realY[sweep,:], self.realX[sweep,:], strt=0.2, end=1.2)
-               sweep_error_t = np.apply_along_axis(compute_mse,0,temp_min,real_min)
+               sweep_error_t = np.apply_along_axis(compute_mse,1,temp_min.reshape(-1,1),real_min)
                error_t = error_t + sweep_error_t
         spiking_vm = np.vstack(spiking_vm)
         #Sum error_s and take out zeros

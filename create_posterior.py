@@ -17,7 +17,7 @@ from sbi import analysis
 from sbi.inference import SNPE, prepare_for_sbi, simulate_for_sbi
 from sbi.inference.base import infer
 import json
-from b2_model.optimizer import snmOptimizer
+from optimizer import snmOptimizer
 with open('optimizer_settings.json') as f:
         optimizer_settings = json.load(f)
 

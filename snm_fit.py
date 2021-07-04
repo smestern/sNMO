@@ -25,7 +25,7 @@ from sbi.inference.base import infer
 from scipy import stats
 
 from b2_model.brian2_model import brian2_model
-from b2_model.optimizer import snmOptimizer
+from optimizer import snmOptimizer
 from loadNWB import *
 from utils import *
 
