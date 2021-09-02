@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from ipfx import feature_extractor
-from scipy.stats import mode, pearsonr, linregress
+from scipy.stats import *
 from scipy import interpolate
 from scipy.spatial import distance
 from scipy.signal import find_peaks
@@ -303,6 +303,14 @@ def compute_se(y, yhat):
     se = np.square(y - yhat)
     return se
 
+def mean_confidence_interval(data, confidence=0.95):
+    a = 1.0 * np.array(data)
+    n = len(a)
+    m, se = np.mean(a), sem(a)
+    h = se * t.ppf((1 + confidence) / 2., n-1)
+    return m, m-h, m+h
+
+
 def equal_array_size_1d(array1, array2, method='append', append_val=0):
     ar1_size = array1.shape[0]
     ar2_size = array2.shape[0]
@@ -473,7 +481,7 @@ def plot_trace(param_dict, model):
     clf()
     model.set_params(param_dict)
     model.set_params({'N': 1})
-    for x in [*model.subthresholdSweep, model.spikeSweep[0]]:
+    for x in [*model.subthresholdSweep, model.spikeSweep[-1]]:
         spikes, traces = model.run_current_sweep(x)
         plot(realX[x,:], traces.v[0] /mV, label="Sim sweep {x}", c='r', alpha=0.5, zorder=9999)
         plot(realX[x,:], realY[x,:], label=f"Real Sweep {x}", c='k')
@@ -482,6 +490,8 @@ def plot_trace(param_dict, model):
     
     
     return
+
+
 
 def plot_IF(param_dict, model):
     ''' 

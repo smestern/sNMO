@@ -104,7 +104,7 @@ class nwbFile(object):
             index_to_use = []
             for key in sweeps: 
                 sweep_dict = dict(f['acquisition'][key].attrs.items())
-                if check_stimulus(sweep_dict['stimulus_description'], 0):
+                if check_stimulus(sweep_dict['stimulus_description']):
                     index_to_use.append(key) 
 
             
@@ -139,11 +139,21 @@ class nwbFile(object):
                 self.dataY = dataY
         return
 
-stim_inc = ['long', 'ol']
-def check_stimulus(stim_desc, stim_inc):
+class stim_names:
+    stim_inc = ['long', '1000']
+    stim_exc = ['rheo', 'Rf50_']
+    def __init__(self):
+        self.stim_inc = stim_names.stim_inc
+        self.stim_exc = stim_names.stim_exc
+        return
+
+global_stim_names = stim_names()
+def check_stimulus(stim_desc):
     try:
         stim_desc_str = stim_desc.decode()
     except:
         stim_desc_str = stim_desc
     #print(stim_desc_str)
-    return (('long' in stim_desc_str) or ('1000' in stim_desc_str)) and (('rheo' not in stim_desc_str) and ('Rf50_' not in stim_desc_str))
+    include_s = np.any([x in stim_desc_str for x in global_stim_names.stim_inc])
+    exclude_s = np.invert(np.any([x in stim_desc_str for x in global_stim_names.stim_exc]))
+    return np.logical_and(include_s, exclude_s)

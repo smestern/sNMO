@@ -23,8 +23,9 @@ from loadNWB import *
 import utils as ut
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger()
-np.random.seed(46)
-def fit_cell(fp, optimizer, optimizer_settings):
+np.random.seed(49)
+
+def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
     '''This is the primairy pass thru for cell fitting. It essentially takes a file path and optimizer keyword and tries to fit the cell
     _____
     takes:
@@ -38,12 +39,12 @@ def fit_cell(fp, optimizer, optimizer_settings):
         spikes = ut.detect_spike_times(realX, realY, realC)
         sweep_upper = ut.find_decline_fi(spikes)
         most_spikes = len(max(spikes, key=len))
-        temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds_=200, batch_size_=500, optimizer=optimizer, sweep_upper_cut=None)
+        temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer, sweep_upper_cut=None)
         temp_df['id'] = [cell_id]
         return temp_df
     #except Exception as e:
         print(f"fail to fit {fp} with exception")
-        print(e.args)
+        print(e.args) 
         return pd.DataFrame()
 
 
@@ -58,7 +59,7 @@ def main(args, optimizer_settings):
     prefit = glob.glob(args.outputFolder + '**//*.csv', recursive=True) #
     prefit_ids = [os.path.basename(x).split("_s")[0] for x in prefit]
     NWB_to_fit = np.random.choice(_path, 1500).tolist()
-    
+    np.random.seed()
     files_to_use = []
     for fp in NWB_to_fit:
                 cell_id = os.path.basename(fp).split('.')[0]
@@ -69,7 +70,7 @@ def main(args, optimizer_settings):
     file_id =[]
     full_df = pd.DataFrame()
     if args.parallel > 1:
-        dataframes =  Parallel(n_jobs=args.parallel, backend='multiprocessing')(delayed(fit_cell)(fp, args.optimizer) for fp in files_to_use)
+        dataframes =  Parallel(n_jobs=args.parallel, backend='multiprocessing')(delayed(fit_cell)(fp, args.optimizer, optimizer_settings, args.rounds, args.batch_size) for fp in files_to_use)
     else:
         for fp in files_to_use:
                 print(f"=== Opening {fp} ===")
@@ -80,7 +81,7 @@ def main(args, optimizer_settings):
                 else:
                     #try:
                         
-                        res = fit_cell(fp, args.optimizer, optimizer_settings)
+                        res = fit_cell(fp, args.optimizer, optimizer_settings, args.rounds, args.batch_size)
                         full_df = full_df.append(res, ignore_index=True)
                     #except:
                         #continue
@@ -100,8 +101,12 @@ if __name__ == "__main__": ##If the script is called from the command line this 
                         help='the output folder for the generated data', default= _dir +'//output//')
     parser.add_argument('--optimizer', type=str, default='ng',
                         help='the optimizer to use', required=False)
-    parser.add_argument('--parallel', type=int, default=-1,
+    parser.add_argument('--parallel', type=int, default=1,
                         help='number of threads to use (one cell per thread)', required=False)
+    parser.add_argument('--batch_size', type=int, default=500,
+                        help='batch size of number of params to test in parallel per cell', required=False)
+    parser.add_argument('--rounds', type=int, default=50,
+                        help='number of rounds to optimize over', required=False)                        
     parser.add_argument('--optimizerSettings', type=str, default='optimizer_settings.json',
                         help='additional settings for the opitmizer to use', required=False)
 

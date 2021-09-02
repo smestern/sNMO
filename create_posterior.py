@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-'''  '''
-#%% Modified for fitting by GB and SM
+
 import os
 import argparse
 from brian2 import *

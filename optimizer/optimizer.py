@@ -158,8 +158,19 @@ class _internal_skopt():
         return param_dict
 
 class _internal_SBI_opt():
-    ''''''
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=1500, prefit_posterior=None, prefit_prior=None):
+    """ 
+    """
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000, prefit_posterior=None):
+        """ An SBI 'optimizer' which allows simple generation of a posterior, or multi-round inference to focus on a particular sample.
+
+        Args:
+            params_dict (dict): a dict containing the parameters to be optimized in high-low pairs
+            batch_size (int): the batch size of the inference rounds
+            rounds (int): number of inference rounds
+            x_obs (ndarray, optional): the default x observation to be used for inference. Defaults to None.
+            n_initial_sim (int, optional): number of initial points to sample from the prior. Defaults to 1500.
+            prefit_posterior (str, optional): a file path pointing to a previously built prior distro. If None, prior will be built from scratch. Defaults to None.
+        """
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
         self._build_params_space()
@@ -178,9 +189,6 @@ class _internal_SBI_opt():
                 self.posts.append(pf)
                 self.proposal = pf
                 self.prefit = True
-            #with open(prefit_prior, "rb") as f:
-                #pf = load(f, allow_pickle=True)
-                #self.posts.append(pf)
                 self.params = self.proposal
         else:
             self.proposal = self.params
@@ -199,10 +207,17 @@ class _internal_SBI_opt():
         self.x_obs = x_obs
 
     def set_x(self, x):
+        """Sets the default X observation for the current proposal
+
+        Args:
+            x (ndarray): the x observation as a numpy array in the shape of (features,) or (1, features)
+        """
         self.x_obs = x
         self.proposal.set_default_x(self.x_obs)
 
     def _build_params_space(self):
+        """ Internal function to build params space in a way expected of SBI (box uniform)
+        """
         ## Params should be a boxuniform
         lower_bound = []
         upper_bound = []
@@ -212,6 +227,14 @@ class _internal_SBI_opt():
         self.params = sbutils.BoxUniform(low=torch.tensor(lower_bound, dtype=default_dtype), high=torch.tensor(upper_bound, dtype=default_dtype)) #The SNPE-SBI wants the data in torch tensors which
 
     def ask(self, n_points=None):
+        """ Ask for new points based on the current proposal (either the prior or a focused backend)
+
+        Args:
+            n_points (int, optional): Number of points to sample. If none, defaults to pre-provided batch_size. Defaults to None.
+
+        Returns:
+            points (dict): a dictonary of sampled points structured as {"param_name": numpy array of shape (points,)}
+        """
         if n_points is None:
             n_points = self.batch_size
         if self._bool_sim_run == False:
@@ -229,29 +252,32 @@ class _internal_SBI_opt():
 
     def tell(self, points, errors):
         assert errors.shape[0] == len(self.param_list)
-        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train()
+        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(discard_prior_samples=True)
         posterior = self.opt.build_posterior(dens_est)
         self.posts.append(posterior)
         self.proposal = posterior.set_default_x(self.x_obs)
         return
 
-    def get_result(self, points=50, from_cache=True):
+    def get_result(self, points=50, from_cache=False, use_map=True):
         self.posts[-1].sample_with_mcmc = True
-        if from_cache:
-            posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
+        #if the user asks, use MAP
+        if use_map:
+            self.posts[-1].sample_with_mcmc = False
+            params = self.posts[-1].map().numpy()
         else:
-            posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
-        self.x_posterior_samples = posterior_samples
-        log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
-        params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
+            if from_cache:
+                posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
+            else:
+                posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
+            self.x_posterior_samples = posterior_samples
+            log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
+            params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}
         for i, (key, val) in enumerate(self._params.items()):
             res_dict[key] = params[i] * self._units[i]
         return res_dict
 
     def fit(self, model, id='default'):
-        
-        error_calc = weightedErrorMetric(weights=[1000, 1])
         min_ar = []
         print(f"== Starting Optimizer with {self.rounds} rounds ===")
         for i in np.arange(self.rounds):
@@ -273,7 +299,7 @@ class _internal_SBI_opt():
             min_ar.append(np.sort(y)[:5])
             res = self.get_result(from_cache=False)
             #try:
-            analysis.plot.pairplot(self.x_posterior_samples, labels=[x for x in self._params.keys()])
+            #analysis.plot.pairplot(self.x_posterior_samples, labels=[x for x in self._params.keys()])
             plt.savefig(f"output//{id}_{i}_pairplot.png")
             plot_trace(res, model)
                 

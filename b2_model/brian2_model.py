@@ -18,6 +18,7 @@ class brian2_model(object):
         #load the choosen model 
         self._model =  getattr(models, model)
         #passed params
+        self.record_vars = ['v']
         if param_dict is not None:
             self.__dict__.update(param_dict) #if the user passed in a param dictonary we can update the objects attributes using it.
                 # This will overwrite the default values if the user passes in for example {'Cm:' 99} the cm value above will be overwritten
@@ -40,10 +41,18 @@ class brian2_model(object):
         var_dict = P.get_states(read_only_variables=False)
         res_dict = self.find_matching_properites(var_dict, self.__dict__)
         P.set_states(res_dict)
-        P.v = res_dict['EL']
+
+        #if the user initilizes the parameters
+        if 'init_var' in self._model.keys():
+            for key, val in self._model['init_var'].items():
+                if isinstance(val, str):
+                    P.set_states({key: P.get_states(vars=[val])[val]})
+                elif isinstance(val, float) or isinstance(val, int):
+                    P.set_states({key: val})
+
         # monitor
         M = SpikeMonitor( P )
-        V = StateMonitor( P, ["v"], record=True, dt=self.dt * ms, when='start')
+        V = StateMonitor( P, self.record_vars, record=True, dt=self.dt * ms, when='start')
         run(self._run_time * second)
         return M,V
 
@@ -192,7 +201,7 @@ class brian2_model(object):
         #compute the FI curves
         spikes_return = np.vstack(spikes_full)
         isi_return = np.vstack(isi_full)
-        error_t /= len(self.subthresholdSweep)
+        error_t /= (len(self.subthresholdSweep) + len(self.spikeSweep))
         spikes_return, isi_return = (spikes_return.T / self._run_time), isi_return.T
         real_FI = self.realFI
         unit_wise_isi_e = np.apply_along_axis(compute_mlse,1,isi_return,self.realISI)
@@ -221,12 +230,12 @@ class brian2_model(object):
             log_real = np.nan_to_num(np.log10(real_FI+1), posinf=0, neginf=0)
             log_sim_isi = np.nan_to_num(np.log10(unit_wise_isi+1), posinf=0, neginf=0)
             log_real_isi = np.nan_to_num(np.log10(self.realISI+1), posinf=0, neginf=0)
-            unit_wise_isi_e = np.apply_along_axis(compute_mse,1,log_sim_isi,log_real_isi)
-            unit_wise_error = np.apply_along_axis(compute_mse,1,log_sim,log_real)
+            unit_wise_isi_e = np.apply_along_axis(compute_mlse,1,log_sim_isi,log_real_isi)
+            unit_wise_error = np.apply_along_axis(compute_mlse,1,log_sim,log_real)
         else:
             unit_wise_isi_e = np.apply_along_axis(compute_mse,1,unit_wise_isi,self.realISI)
             unit_wise_error = np.apply_along_axis(compute_mse,1,unit_wise_FI, self.realFI)
-        return unit_wise_error +  unit_wise_isi_e
+        return unit_wise_error, unit_wise_isi_e
 
     def build_FI_curve(self, param_dict=None):
         if param_dict is not None:
