@@ -8,14 +8,21 @@ import pandas as pd
 
 
 def loadNWB(file_path, return_obj=False, old=False):
-    ''' Loads the nwb object and returns three arrays dataX, dataY, dataC and optionally the object.
+    """Loads the nwb object and returns three arrays dataX, dataY, dataC and optionally the object.
     same input / output as loadABF for easy pipeline inclusion
-    
-    dataX - time (should be seconds)
-    dataY - voltage (should be mV)
-    dataC - current (should be pA)
-    dt - sampling interval (should be seconds)
-    '''
+
+    Args:
+        file_path (str): [description]
+        return_obj (bool, optional): return the NWB object to access various properites. Defaults to False.
+        old (bool, optional): use the old indexing method, uneeded in most cases. Defaults to False.
+
+    Returns:
+        dataX: time (should be seconds)
+        dataY: voltage (should be mV)
+        dataC: current (should be pA)
+        dt: time step (should be seconds)
+    """    
+   
     if old:
         nwb = old_nwbFile(file_path)
     else:

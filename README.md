@@ -1,4 +1,4 @@
-# sNMO : single neuron model optimzier (SNMO)
+# sNMO : single neuron model optimzier (SNMO) (and network fitting)
 
 This project features several methods for fitting single neuron traces recorded during whole-cell patch clamp recordings. The primary focus is fitting square pulse sweeping stimualtion recordings. This projcet is focused/built for the neuronex-wm research group
 
@@ -13,7 +13,7 @@ for neuronex-wm IRG2 members, there are two scripts to be used from the command 
 ```
 --inputFolder : a path to the folder containing the NWBS to be fitt
 --outputFolder : a path to the output folder where fitting results will be saved, and progress will be reported
---optimizer : the optimizer to be used. Can be one of ['ng', 'skopt', 'sbi', 'snpe']
+--optimizer : the optimizer to be used. Can be one of ['ng', 'skopt', 'sbi', 'snpe', 'ax']
 --parallel : number of cells to fit simultaneously. Numbers below 1 mean one cell fit per thread.
 --optimizerSettings : points to a json file that contains additional settings (see below)
 ```

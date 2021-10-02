@@ -8,7 +8,7 @@ from scipy import stats
 from multiprocessing import freeze_support
 from joblib import Parallel, delayed
 import numpy as np
-from spike_train_utils import *
+from utils import *
 parallel = False
 
 

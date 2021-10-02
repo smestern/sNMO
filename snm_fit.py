@@ -69,7 +69,7 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds=500, batch_si
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.75, model.taum*1.25]
     print(f"== Loaded cell {cell_id} for fitting ==")
     if optimizer == 'skopt' or optimizer=='ng' or optimizer=='ax':
-        results = biphase_opt(model, optimizer_settings, optimizer=optimizer, id=cell_id)
+        results = optimize(model, optimizer_settings, optimizer=optimizer, id=cell_id)
     elif optimizer == 'snpe'  or optimizer=='sbi': 
         results = SNPE_OPT(model, optimizer_settings, id=cell_id)
     results_out = results
@@ -264,7 +264,7 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
     model.set_params({'N': _batch_size})
     budget = int(_rounds * _batch_size)
 
-
+    x_o = model_feature_curve(model)
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), _batch_size, _rounds, backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
     min_ar = []
     print(f"== Starting Optimizer with {_rounds} _rounds ===")
@@ -506,3 +506,4 @@ def sub_eq(model, value, eq_str):
                                                             flags=eq.flags)
     model._model['eqs'] = Equations(list(new_equations.values()))
     return model
+

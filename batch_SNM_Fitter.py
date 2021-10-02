@@ -23,7 +23,7 @@ from loadNWB import *
 import utils as ut
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger()
-np.random.seed(49)
+np.random.seed(46)
 
 def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
     '''This is the primairy pass thru for cell fitting. It essentially takes a file path and optimizer keyword and tries to fit the cell
@@ -31,7 +31,7 @@ def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
     takes:
     fp (str): a file path arguement pointing towards a single nwb
     optimizer (str): the string stating which optimizer to use'''
-    if True: #try:
+    try:
         cell_id = fp.split("\\")[-1].split(".")[0]
         
         realX, realY, realC,_ = loadNWB(fp, old=False)
@@ -42,7 +42,7 @@ def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
         temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer, sweep_upper_cut=None)
         temp_df['id'] = [cell_id]
         return temp_df
-    #except Exception as e:
+    except Exception as e:
         print(f"fail to fit {fp} with exception")
         print(e.args) 
         return pd.DataFrame()
