@@ -278,7 +278,7 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
         _, error_t, error_fi, error_isi, error_s = model.opt_full_mse(param_dict)
         error_fi = np.nan_to_num(error_fi, nan=999999) * 10
         error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
-        y = error_t + error_fi + error_s
+        y = error_t + error_fi + error_isi
         #y = np.vstack([error_t, error_fi, error_s]).T
         y = np.nan_to_num(y, nan=999999)
         #y = stats.gmean(np.vstack((error_fi, error_t)), axis=0)
@@ -301,7 +301,7 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
         if len(min_ar) > 5:
             if _check_min_loss_gradient(min_ar, num_no_improvement=25, threshold=1e-5) == False:
                 break
-        print(f"[CELL {id}] - iter {i} excuted in {(t_end-t_start)/60} min, with error {np.amin(y)} #with a min trace error {error_t[np.argmin(y)]} and FI error of {error_fi[np.argmin(y)]} and spike error of {error_s[np.argmin(y)]}") #    
+        print(f"[CELL {id}] - iter {i} excuted in {(t_end-t_start)/60} min, with error {np.amin(y)} #with a min trace error {error_t[np.argmin(y)]} and FI error of {error_fi[np.argmin(y)]} and spike error of {error_isi[np.argmin(y)]}") #    
     results = opt.get_result() #returns a result containing the param - error matches
     return results
 

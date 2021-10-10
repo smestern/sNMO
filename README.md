@@ -1,9 +1,17 @@
 # sNMO : single neuron model optimzier (SNMO) (and network fitting)
 
-This project features several methods for fitting single neuron traces recorded during whole-cell patch clamp recordings. The primary focus is fitting square pulse sweeping stimualtion recordings. This projcet is focused/built for the neuronex-wm research group
+This project features several methods for fitting single neuron traces recorded during whole-cell patch clamp recordings. The primary focus is fitting square pulse sweeping stimualtion recordings. This project is focused/built for the neuronex-wm research group  
+
+The actual package wraps several optimizers:  
+-Nevergrad  
+-SBI [https://www.mackelab.org/sbi/](https://www.mackelab.org/sbi/)  
+-Ax  
+-Scikit-optimize  
+
+both sbi and nevergrad are recommended for models with wide / large parameter spaces.
 
 ## how-to
-### basic fitting method
+### basic fitting method (from command line)
 
 The project contains several methods for fitting single neurons, from high level methods to low level custom fitting methods. The goal of this project is to have functional programming interface, as well as an object oriented interface for better constraints.
 
@@ -22,12 +30,13 @@ for neuronex-wm IRG2 members, there are two scripts to be used from the command 
 
 
 ### adjusting optimizer settings
+
 In addition to the main settings, additional optimizer settings such as variable constraints, model choice, protocols to be used can be adjusted by editings the optimizer_settings.json or creating your own optimizer settings json and passing it as an arg. At a minimum this file needs to specifiy model choice and constraints.
 ```
 {  "model_choice" : "adEx", //the model to be fit, found in models.py
-   "stim_names_inc" : ["1000", "long"],
+   "stim_names_inc" : ["1000", "long"], // anything contained in these strings can be 
    "stim_names_exc" : ["rheo", "Rf50"],
-   "sweeps_to_fit" : [], 
+   "sweeps_to_fit" : [],  //numeric sweeps to fit
    "constraints": { "adEx": { //the constraints for the variables found in the model.
                         "C" : [5, 350], //constraints should be [low, high] pairs
                         "taum": [9, 250],
@@ -47,4 +56,36 @@ In addition to the main settings, additional optimizer settings such as variable
 
 ### adding custom models to fit
 
-Adding custom models is fairly easy. Custom models can be added currently by modifying models.py found in the b2_model subfolder. The model needs to be specified in the standard
+Adding custom models is fairly easy. Custom models can be added currently by modifying models.py found in the b2_model subfolder. The model needs to be specified in the standard format required by brian2.
+```
+asqEx = dict(eqs=Equations('''
+        dv/dt = ( gL*(EL-v) + gL*DeltaT*exp((v - vc)/DeltaT) + I - w ) * (1./C) : volt (unless refractory)
+        dw/dt = ( a*(v - EL) - w ) / tauw : amp (unless refractory)
+        dvc/dt = (VT - vc) / tauVT : volt (unless refractory)
+        Vcut = VT + (DeltaT * 5) : volt (constant over dt)
+        gL = C/taum : siemens (constant over dt)
+        tauw : second
+        tauVT : second
+        a : siemens
+        b : amp
+        C : farad
+        taum : second
+        EL : volt
+        VT : volt
+        VR : volt
+        DeltaT : volt
+        refrac : second
+        bVT : volt
+        I = in_current(t) : amp
+        '''), threshold='v>Vcut', reset='v=VR; w+=b; vc+=bVT', refractory='refrac', method='euler', init_var=dict(vc='VT', v='EL')) 
+```
+eqs: specifies the ODE of the neuronal model
+threshold: triggers the reset (keyword) code
+refractory: is the refractory period after a spike where the model cannot fire.  
+method: the method of integration. (optional)
+init_var: a dictionary of 
+
+
+### Choosing an optimizer
+
+

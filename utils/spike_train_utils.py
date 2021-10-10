@@ -360,6 +360,7 @@ def compute_burst_index(isi):
     overallsize = len(isi)
     burst_index = burst_count/overallsize
     return burst_index
+    
 def emd_isi(isi1,isi2):
     bins = np.logspace(0,4)
     hisi1 = np.histogram(isi1, bins, density=False)[0].astype(np.float64)

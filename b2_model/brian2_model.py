@@ -162,8 +162,8 @@ class brian2_model(object):
                 if len(pspikes) > 0:
                     neuron_wise_spikes.append(len(pspikes))
                     spike_s = pspikes/ms
-                    if len(spike_s) > 1:
-                        neuron_wise_isi.append(np.nanmean(np.diff(spike_s)))
+                    if len(spike_s) > 2:
+                        neuron_wise_isi.append(emd_isi(np.append(np.diff(spike_s),1), np.append(np.diff(self.spike_times[self.activeSweep]*1000),1)))
                     else:
                         neuron_wise_isi.append(0)
                     if sweep in self.spikeSweep:
@@ -204,7 +204,7 @@ class brian2_model(object):
         error_t /= (len(self.subthresholdSweep) + len(self.spikeSweep))
         spikes_return, isi_return = (spikes_return.T / self._run_time), isi_return.T
         real_FI = self.realFI
-        unit_wise_isi_e = np.apply_along_axis(compute_mlse,1,isi_return,self.realISI)
+        unit_wise_isi_e = np.sum(isi_return, axis=1)
         unit_wise_error = np.apply_along_axis(compute_mlse,1,spikes_return,real_FI)
         error_fi = unit_wise_error
         error_isi = unit_wise_isi_e
