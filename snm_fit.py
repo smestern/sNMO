@@ -209,8 +209,8 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     #model.subthresholdSweep = None
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], _batch_size, _rounds, backend='sbi', sbi_kwargs=dict(x_obs=x_o))
     #set the default X, seems to speed up sampling
-    opt._rounds = 40
-    opt.fit(model, id='test')
+    opt.rounds = 2
+    opt.fit(model, id=model.id)
     # get top 100 samples
      ##TODO maybe take the mode of the highest samples for each column?
     #Take the 
@@ -230,7 +230,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
 
 
     if run_ng:
-        results_out = _opt(model, optimizer_settings)  #returns a result containing the param - error matches
+        results_out = optimize(model, optimizer_settings)  #returns a result containing the param - error matches
     elif run_ng_phase:
         results_out = biphase_opt(model, optimizer_settings)
     print("=== Saving Results ===")

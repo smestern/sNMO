@@ -122,7 +122,7 @@ class _internal_ng_opt(snMOptimizer):
                 best_val[key] = val * self._units[i]
         return best_val
         
-class _internal_skopt():
+class _internal_skopt(snMOptimizer):
     def __init__(self, params, param_labels, batch_size, rounds, optimizer='RF', skopt_kwargs={}):
         #Build Params
         self._params = params
@@ -157,10 +157,10 @@ class _internal_skopt():
             param_dict[label] = value
         return param_dict
 
-class _internal_SBI_opt():
+class _internal_SBI_opt(snMOptimizer):
     """ 
     """
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=15000, prefit_posterior=None):
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=30000, prefit_posterior=None):
         """ An SBI 'optimizer' which allows simple generation of a posterior, or multi-round inference to focus on a particular sample.
 
         Args:
@@ -258,11 +258,11 @@ class _internal_SBI_opt():
         self.proposal = posterior.set_default_x(self.x_obs)
         return
 
-    def get_result(self, points=50, from_cache=False, use_map=True):
+    def get_result(self, points=50, from_cache=False, use_map=False):
         self.posts[-1].sample_with_mcmc = True
         #if the user asks, use MAP
         if use_map:
-            self.posts[-1].sample_with_mcmc = False
+            self.posts[-1].sample_with_mcmc = True
             params = self.posts[-1].map().numpy()
         else:
             if from_cache:
@@ -299,7 +299,7 @@ class _internal_SBI_opt():
             min_ar.append(np.sort(y)[:5])
             res = self.get_result(from_cache=False)
             #try:
-            #analysis.plot.pairplot(self.x_posterior_samples, labels=[x for x in self._params.keys()])
+            analysis.plot.pairplot(self.x_posterior_samples, labels=[x for x in self._params.keys()])
             plt.savefig(f"output//{id}_{i}_pairplot.png")
             plot_trace(res, model)
                 
