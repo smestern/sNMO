@@ -28,6 +28,7 @@ try:
     from ax.modelbridge.registry import Models
 except:
     logging.WARNING("Ax not installed, ax optimizer unavailible")
+    pass
 default_dtype = torch.float32
 
 TBPSAwithHam = ng.optimizers.Chaining([ng.optimizers.ScrHammersleySearch, ng.optimizers.NaiveTBPSA], ["num_workers"])
@@ -41,13 +42,13 @@ def snmOptimizer(params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs
     Takes:
     '''
     if backend == 'ng':
-            return _internal_ng_opt(params_dict.copy(), batch_size, rounds, nevergrad_opt, nevergrad_kwargs=nevergrad_kwargs)  
+            return NG_optimizer(params_dict.copy(), batch_size, rounds, nevergrad_opt, nevergrad_kwargs=nevergrad_kwargs)  
     elif backend == 'skopt':
-            return _internal_skopt(params_dict, batch_size, rounds)
+            return SKopt_optimizer(params_dict.copy(), batch_size, rounds)
     elif backend == 'sbi':
-            return _internal_SBI_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
+            return SBI_optimizer(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
     elif backend == 'ax':
-            return _internal_Ax_opt(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
+            return Ax_optimizer(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
             
 class snMOptimizer():
     def __init__():
@@ -71,7 +72,7 @@ class snMOptimizer():
                 param_dict[key] = val * self._units[i]
         return param_dict
 
-class _internal_ng_opt(snMOptimizer):
+class NG_optimizer(snMOptimizer):
     def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}, batch_trials=True, include_units=True):
         #Build Params
         self._units = [globals()[x] for x in params_dict.pop('units')]
@@ -122,7 +123,7 @@ class _internal_ng_opt(snMOptimizer):
                 best_val[key] = val * self._units[i]
         return best_val
         
-class _internal_skopt(snMOptimizer):
+class SKopt_optimizer(snMOptimizer):
     def __init__(self, params, param_labels, batch_size, rounds, optimizer='RF', skopt_kwargs={}):
         #Build Params
         self._params = params
@@ -157,7 +158,7 @@ class _internal_skopt(snMOptimizer):
             param_dict[label] = value
         return param_dict
 
-class _internal_SBI_opt(snMOptimizer):
+class SBI_optimizer(snMOptimizer):
     """ 
     """
     def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=30000, prefit_posterior=None):
@@ -327,7 +328,7 @@ class _internal_SBI_opt(snMOptimizer):
             out = np.nan_to_num(np.hstack((self.model.build_FI_curve(dict_in))).reshape(args.numpy().shape[0], -1), posinf=0, neginf=0)
             return torch.tensor(out, dtype=default_dtype)
 
-class _internal_Ax_opt():
+class Ax_optimizer():
     class dummy_metric(Metric):
         def fetch_trial_data(self, trial):  
             records = []
@@ -364,14 +365,14 @@ class _internal_Ax_opt():
         self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=self.gs)
         self.exp = Experiment(name='snm_fitting', search_space=SearchSpace(parameters=self.params))
         #self.opt.create_experiment(parameters=self.params, choose_generation_strategy_kwargs={"max_parallelism_override": batch_size}, objective_name='snm_fit')
-        self.metric = _internal_Ax_opt.dummy_metric(name="booth")
+        self.metric = Ax_optimizer.dummy_metric(name="booth")
         optimization_config = OptimizationConfig(
                 objective = Objective(
                     metric=self.metric, 
                     minimize=True,
                 ),
                 )
-        self.exp.runner = _internal_Ax_opt.dummy_runner(parent_obj=self)
+        self.exp.runner = Ax_optimizer.dummy_runner(parent_obj=self)
         self.exp.optimization_config = optimization_config
         self.model = Models.SOBOL
         self._internal_run_count = int(-1)

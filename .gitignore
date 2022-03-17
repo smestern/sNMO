@@ -1,6 +1,7 @@
 /output/
 /sbi-logs/
 /__pycache__/
+/tmp/
 /.ipynb_checkpoints/
 *.ipynb
 *.pyc

@@ -2,6 +2,10 @@
 Single neuron param fit
 Rough coding space of several (optimizer, random, grid search) methods for optimizing
 params. Can be called from the command line:
+todo - add a command line interface
+    - add a GUI interface
+    - add a GUI interface with a progress bar
+    - make more object oriented
 
 '''
 import argparse
@@ -62,14 +66,14 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds=500, batch_si
     _rounds= rounds #Set the global settings to the user passed in params
     _batch_size= batch_size
     model = load_data_and_model(file, optimizer_settings, sweep_upper_cut=sweep_upper_cut) #load the 1nwb and model
-    cell_id = file.split("\\")[-1].split(".")[0] #grab the cell id by cutting around the file path
+    cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
     #adjust the constraints to the found CM or TAUM
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.75, model.C*1.25]
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.75, model.taum*1.25]
     print(f"== Loaded cell {cell_id} for fitting ==")
     if optimizer == 'skopt' or optimizer=='ng' or optimizer=='ax':
-        results = optimize(model, optimizer_settings, optimizer=optimizer, id=cell_id)
+        results = biphase_opt(model, optimizer_settings, optimizer=optimizer, id=cell_id)
     elif optimizer == 'snpe'  or optimizer=='sbi': 
         results = SNPE_OPT(model, optimizer_settings, id=cell_id)
     results_out = results
@@ -108,8 +112,9 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     lnwb.global_stim_names.stim_exc = optimizer_settings['stim_names_exc']
 
     #load the data from the file
-    cell_id = file.split("\\")[-1].split(".")[0] #grab the cell id by cutting around the file path
+    cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
     realX, realY, realC,_ = lnwb.loadNWB(file_path, old=False)
+    
     #crop the data
     index_3 = np.argmin(np.abs(realX[0,:]-2.50))
     ind_strt = np.argmin(np.abs((realX[0,:]-0.50)))
@@ -230,20 +235,11 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
 
 
     if run_ng:
-        results_out = optimize(model, optimizer_settings)  #returns a result containing the param - error matches
+        results_out = optimize(model, optimizer_settings, id=cell_id)  #returns a result containing the param - error matches
     elif run_ng_phase:
         results_out = biphase_opt(model, optimizer_settings)
-    print("=== Saving Results ===")
-    df = pd.DataFrame(results_out, index=[0])
-    df.to_csv(f'output//{id}_spike_fit_opt_CSV.csv')
-    min_dict = results_out
-    plot_IF(min_dict, model)
-    plt.savefig(f"output//{id}_fit_IF.png")
-    plot_trace(min_dict, model)
-    plt.savefig(f"output//{id}_fit_vm.png")
     
-    print("=== Results Saved ===")
-    return df
+    return results_out
 
 def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
     """ Runs the specified optimizer over the file using the given settings. 
@@ -273,12 +269,6 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
         model.set_params({'N': _batch_size, 'refractory':0})
         t_start = time.time()
         param_list = opt.ask()
-        param_dict = param_list
-        print(f"sim {(time.time()-t_start)/60} min start")
-        _, error_t, error_fi, error_isi, error_s = model.opt_full_mse(param_dict)
-        error_fi = np.nan_to_num(error_fi, nan=999999) * 10
-        error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
-        y = error_t + error_fi + error_isi
         #y = np.vstack([error_t, error_fi, error_s]).T
         y = np.nan_to_num(y, nan=999999)
         #y = stats.gmean(np.vstack((error_fi, error_t)), axis=0)
@@ -306,7 +296,7 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
     return results
 
 def biphase_opt(model, optimizer_settings, optimizer='ng', id='nan'):
-    """[summary]
+    """Only tunes the AdEx model as it stands. First tunes the the subthreshold sweep, then the 
 
     Args:
         model ([type]): [description]
@@ -332,7 +322,8 @@ def biphase_opt(model, optimizer_settings, optimizer='ng', id='nan'):
     param_ranges.pop('VT')
     param_ranges.pop('b')
     param_ranges.pop('refrac')
-    model.set_params({"VT":999999*mV})
+    model.set_params({"VT":999999*mV}) #set the VT to a high value so it doesn't affect the fit
+
     param_ranges['units'].pop(3)
     param_ranges['units'].pop(5)
     param_ranges['units'].pop(7)
@@ -386,7 +377,7 @@ def biphase_opt(model, optimizer_settings, optimizer='ng', id='nan'):
     #fix to the best fit values
     model.set_params(results)
     model.set_params({'N': _batch_size})
-    #model = sub_eq(model, 'a', f'a = (tauw/ms * {_})*nS : siemens')
+    model = sub_eq(model, 'a', f'a = (tauw/ms * {_})*nS : siemens')
     #create the cheap constraint
     def preserve_ratio(x):
         ratio = x['a'] / x['tauw'] 
@@ -400,7 +391,7 @@ def biphase_opt(model, optimizer_settings, optimizer='ng', id='nan'):
     _, param_ranges['taum'][0], param_ranges['taum'][1] = mean_confidence_interval(top_taum_val)
 
     opt = snmOptimizer(param_ranges, _batch_size, _rounds ** 20, backend=optimizer, nevergrad_opt=ng.optimizers.Portfolio)
-    opt.opt.parametrization.register_cheap_constraint(preserve_ratio)
+    #opt.opt.parametrization.register_cheap_constraint(preserve_ratio)
     min_ar = []
     for i in np.arange(_rounds):
         print(f"iter {i} start")

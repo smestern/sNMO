@@ -98,14 +98,14 @@ if __name__ == "__main__": ##If the script is called from the command line this 
     parser.add_argument('--inputFolder', type=str, 
                         help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//pfc//'))
     parser.add_argument('--outputFolder', type=str,
-                        help='the output folder for the generated data', default= _dir +'//output//')
+                        help='the output folder for the generated data', default= _dir +'//out//')
     parser.add_argument('--optimizer', type=str, default='sbi',
                         help='the optimizer to use', required=False)
     parser.add_argument('--parallel', type=int, default=1,
                         help='number of threads to use (one cell per thread)', required=False)
     parser.add_argument('--batch_size', type=int, default=500,
                         help='batch size of number of params to test in parallel per cell', required=False)
-    parser.add_argument('--rounds', type=int, default=50,
+    parser.add_argument('--rounds', type=int, default=5,
                         help='number of rounds to optimize over', required=False)                        
     parser.add_argument('--optimizerSettings', type=str, default='optimizer_settings.json',
                         help='additional settings for the opitmizer to use', required=False)

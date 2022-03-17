@@ -20,7 +20,7 @@ except:
     print('Spike distance lib import failed')
 
 
-from smoothn import *
+#from smoothn import *
 from brian2 import plot
 import matplotlib.pyplot as plt
 
