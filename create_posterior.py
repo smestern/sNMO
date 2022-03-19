@@ -32,7 +32,7 @@ def generate_posterior(tag=''):
 
     #%% Load and/or compute fixed params
 
-    file_path = file_dir +'//..//NWB_with_stim//macaque//V1//M19_JS_A1_C10.nwb'
+    file_path = file_dir +'//..//NWB_with_stim//macaque//pfc//M02_MW_D4_C09.nwb'
     model = load_data_and_model(file_path, optimizer_settings)
     realX, realY, realC = model.realX, model.realY, model.realC
     idx_stim = np.argmin(np.abs(realX - 1))
@@ -48,12 +48,25 @@ def generate_posterior(tag=''):
     model.add_real_data(realX, realY, realC, spike_time, non_spiking_sweeps, spiking_sweeps)
     ##Global vars ###
     N = 15000
-    batches=1
+    batches=2 
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], N, batches, backend='sbi')
     
+    def simulator_pass(x):
+        #build dict
+        x_dict = {}
+        x = x.detach().numpy().T
+        for i, key in enumerate(optimizer_settings['constraints'][optimizer_settings['model_choice']]):
+                if key!='units':
+                        x_dict[key] = x[i]
+        param_dict = opt.attach_units(x_dict)
+        model.set_params({'N': x.shape[1]})
+        y = model.build_feature_curve(param_dict)
+        return y
+
+
     model.set_params({'N': N})
     prior = opt.params
-
+    simulator, prior = prepare_for_sbi(simulator_pass, prior)
     theta_full = []
     res_full = []
     ##Now intialize the Neural Network. We tell it to run with a batch size same as the number of neurons we simulate in parallel
@@ -61,10 +74,10 @@ def generate_posterior(tag=''):
     inference = SNPE(prior, device="cpu")
     #%% Run the inference
     print("== Fitting Model ==")
-    for x in np.arange(batch/home/smestern/Desktop/NETSIM-dev-masteres):
-        theta_temp = opt.ask(n_points=N)
-        res_temp = model.build_feature_curve(theta_temp)
-        theta_full.append(np.array(list(theta_temp.values())).T)#for whatever reason we need to transpose the rar
+    for x in np.arange(batches):
+        theta_temp = prior.sample((N,))
+        res_temp = simulator_pass(theta_temp)
+        theta_full.append(theta_temp)#for whatever reason we need to transpose the rar
         res_full.append(res_temp)
     #Now run the inference for N of neuron simulations (1 batch). This runs the simulator function we provid with randomly selected params
     #and then computes the prob dist
@@ -74,11 +87,17 @@ def generate_posterior(tag=''):
     np.save(f"{tag}_params_ds.npy", res.numpy())
 
     #%% Now we need to run the inference for the posterior
-    dens_est = inference.append_simulations(theta, res, proposal=prior).train()
+    dens_est = inference.append_simulations(theta, res).train()
     posterior = inference.build_posterior(dens_est)
+    posterior.set_default_x(res[0])
+    #try sampling the data?
+    sample = posterior.sample((1000,))
+
+
     with open(f"{tag}_post.pkl", "wb") as f:
             dump(posterior, f)
-
+    with open(f"{tag}_dens_est.pkl", "wb") as f:
+            dump(dens_est, f)
     with open(f"{tag}_prior.pkl", "wb") as f:
             dump(prior, f)
     

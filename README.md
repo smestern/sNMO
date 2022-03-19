@@ -83,7 +83,7 @@ eqs: specifies the ODE of the neuronal model
 threshold: triggers the reset (keyword) code
 refractory: is the refractory period after a spike where the model cannot fire.  
 method: the method of integration. (optional)
-init_var: a dictionary of 
+init_var: a dictionary of intialized variables.
 
 
 ### Choosing an optimizer

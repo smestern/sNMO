@@ -242,9 +242,10 @@ def membrane_resistance_subt(dataT, dataV,dataI):
     for i, sweep in enumerate(dataV):
         abs_min, resp = compute_sag(dataT[i,:], sweep, dataI[i,:])
         ind =find_stim_changes(dataI[i, :])
+        baseline = np.mean(sweep[:ind[0]])
         stim = dataI[i,ind[0] + 1]
         stim_data.append(stim)
-        resp_data.append(resp+abs_min)
+        resp_data.append((resp+abs_min) - baseline)
     resp_data = np.array(resp_data) * mV
     stim_data = np.array(stim_data) * pA
     res = linregress(stim_data / amp, resp_data / volt)

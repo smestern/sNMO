@@ -69,11 +69,11 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds=500, batch_si
     cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
     #adjust the constraints to the found CM or TAUM
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
-    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.75, model.C*1.25]
+    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.95, model.C*1.15]
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.75, model.taum*1.25]
     print(f"== Loaded cell {cell_id} for fitting ==")
     if optimizer == 'skopt' or optimizer=='ng' or optimizer=='ax':
-        results = biphase_opt(model, optimizer_settings, optimizer=optimizer, id=cell_id)
+        results = optimize(model, optimizer_settings, optimizer=optimizer, id=cell_id)
     elif optimizer == 'snpe'  or optimizer=='sbi': 
         results = SNPE_OPT(model, optimizer_settings, id=cell_id)
     results_out = results
@@ -105,7 +105,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     global spiking_sweeps
     global non_spiking_sweeps
 
-    sweeps_to_use = None  
+    sweeps_to_use = optimizer_settings['sweeps_to_fit']
     file_path = file
     #set the stims
     lnwb.global_stim_names.stim_inc =  optimizer_settings['stim_names_inc']
@@ -212,7 +212,8 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     
 
     #model.subthresholdSweep = None
-    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], _batch_size, _rounds, backend='sbi', sbi_kwargs=dict(x_obs=x_o))
+    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], _batch_size, _rounds, 
+    backend='sbi', sbi_kwargs=dict(x_obs=x_o, prefit_posterior='ADIF_posterior_dens_est.pkl'))
     #set the default X, seems to speed up sampling
     opt.rounds = 2
     opt.fit(model, id=model.id)
@@ -261,7 +262,8 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
     budget = int(_rounds * _batch_size)
 
     x_o = model_feature_curve(model)
-    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), _batch_size, _rounds, backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
+    opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), _batch_size, _rounds, 
+    backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
     min_ar = []
     print(f"== Starting Optimizer with {_rounds} _rounds ===")
     for i in np.arange(_rounds):
@@ -270,7 +272,7 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
         t_start = time.time()
         param_list = opt.ask()
         #y = np.vstack([error_t, error_fi, error_s]).T
-        y = np.nan_to_num(y, nan=999999)
+        #y = np.nan_to_num(y, nan=999999)
         #y = stats.gmean(np.vstack((error_fi, error_t)), axis=0)
         print(f"sim {(time.time()-t_start)/60} min end")
         opt.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
@@ -400,7 +402,7 @@ def biphase_opt(model, optimizer_settings, optimizer='ng', id='nan'):
         param_list = opt.ask()
         print(f"sim {(time.time()-t_start)/60} min start")
         _, error_t, error_fi, error_isi, error_s = model.opt_full_mse(param_list)
-        y = error_fi + error_s + (error_t/100)
+        y = error_fi + error_s + (error_t/1000)
         print(f"sim {(time.time()-t_start)/60} min end")
         opt.tell(param_list, y) ##Tells the optimizer the par0am - error pairs so it can learn
         t_end = time.time()

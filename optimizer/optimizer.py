@@ -16,7 +16,7 @@ from brian2 import *
 from joblib import dump, load
 from sbi import utils as sbutils
 from sbi import analysis
-from sbi.inference import SNPE, prepare_for_sbi, simulate_for_sbi
+from sbi.inference import SNPE #, prepare_for_sbi, simulate_for_sbi
 from sbi.inference.base import infer
 from skopt import Optimizer, plots, space
 from utils import *
@@ -26,9 +26,10 @@ try:
     from ax.service.ax_client import AxClient
     from ax.modelbridge.generation_strategy import GenerationStrategy, GenerationStep
     from ax.modelbridge.registry import Models
+    ax_loaded = True
 except:
-    logging.WARNING("Ax not installed, ax optimizer unavailible")
-    pass
+    logging.warning("Ax not installed, ax optimizer unavailible")
+    ax_loaded = False
 default_dtype = torch.float32
 
 TBPSAwithHam = ng.optimizers.Chaining([ng.optimizers.ScrHammersleySearch, ng.optimizers.NaiveTBPSA], ["num_workers"])
@@ -161,7 +162,7 @@ class SKopt_optimizer(snMOptimizer):
 class SBI_optimizer(snMOptimizer):
     """ 
     """
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=30000, prefit_posterior=None):
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=30, prefit_posterior=None, sample_conditional=True):
         """ An SBI 'optimizer' which allows simple generation of a posterior, or multi-round inference to focus on a particular sample.
 
         Args:
@@ -171,6 +172,7 @@ class SBI_optimizer(snMOptimizer):
             x_obs (ndarray, optional): the default x observation to be used for inference. Defaults to None.
             n_initial_sim (int, optional): number of initial points to sample from the prior. Defaults to 1500.
             prefit_posterior (str, optional): a file path pointing to a previously built prior distro. If None, prior will be built from scratch. Defaults to None.
+            sample_conditional (bool, optional): whether to sample from the posterior or use the prior. Defaults to True.
         """
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
@@ -190,7 +192,6 @@ class SBI_optimizer(snMOptimizer):
                 self.posts.append(pf)
                 self.proposal = pf
                 self.prefit = True
-                self.params = self.proposal
         else:
             self.proposal = self.params
             self.prefit = False
@@ -198,14 +199,24 @@ class SBI_optimizer(snMOptimizer):
         if x_obs is not None:
             self.x_obs = x_obs
             try:
-                self.params.set_default_x(x_obs)
                 self.proposal.set_default_x(x_obs)
+                self.params.set_default_x(x_obs)
             except:
-                pass
+                logging.debug("x_obs not compatible with the proposal")
         budget = (rounds * batch_size)
         self.opt = self.optimizer(prior=self.params)
+
+        if self.prefit:
+            self.proposal = self.opt.build_posterior(self.proposal) #
+            self.proposal.set_default_x(x_obs)
         self._bool_sim_run = False
-        self.x_obs = x_obs
+        self.x_obs = x_obs #our X observation should be the cell we want to fit
+        
+        if sample_conditional:
+            self.sample = self._sample_conditional
+        else:
+            self.sample = self._sample
+
 
     def set_x(self, x):
         """Sets the default X observation for the current proposal
@@ -239,7 +250,7 @@ class SBI_optimizer(snMOptimizer):
         if n_points is None:
             n_points = self.batch_size
         if self._bool_sim_run == False:
-            self.proposal.sample_with_mcmc = False
+            self.proposal.sample_with_mcmc = True
             self._bool_sim_run = True
         else:
             self.proposal.sample_with_mcmc = True
@@ -328,129 +339,135 @@ class SBI_optimizer(snMOptimizer):
             out = np.nan_to_num(np.hstack((self.model.build_FI_curve(dict_in))).reshape(args.numpy().shape[0], -1), posinf=0, neginf=0)
             return torch.tensor(out, dtype=default_dtype)
 
-class Ax_optimizer():
-    class dummy_metric(Metric):
-        def fetch_trial_data(self, trial):  
-            records = []
-            for i, (arm_name, arm) in enumerate(trial.arms_by_name.items()):
-                params = arm.parameters
-                records.append({
-                    "arm_name": arm_name,
-                    "metric_name": self.name,
-                    "mean": trial.run_metadata['snm_error'][i],
-                    "sem": 0.0,
-                    "trial_index": trial.index,
-                })
-            return Data(df=pd.DataFrame.from_records(records))
-
-    class dummy_runner(Runner):
-            def __init__(self, parent_obj):
-                self.parent_obj = parent_obj
-            def run(self, trial):
-                return {"name": str(trial.index), "snm_error": self.parent_obj._error}
-
-    def __init__(self, params_dict, batch_size, rounds, device_gp='cuda', num_sobol=3):
-        
-        self._units = [globals()[x] for x in params_dict.pop('units')]
-        self._params = OrderedDict(params_dict)
-        self._build_params_space()
-        self.rounds = rounds
-        self.batch_size = batch_size
-        if device_gp=='cuda':
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = torch.device("cpu")
-        self.num_sobol = num_sobol
-        self.gs = self._build_gs()
-        self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=self.gs)
-        self.exp = Experiment(name='snm_fitting', search_space=SearchSpace(parameters=self.params))
-        #self.opt.create_experiment(parameters=self.params, choose_generation_strategy_kwargs={"max_parallelism_override": batch_size}, objective_name='snm_fit')
-        self.metric = Ax_optimizer.dummy_metric(name="booth")
-        optimization_config = OptimizationConfig(
-                objective = Objective(
-                    metric=self.metric, 
-                    minimize=True,
-                ),
-                )
-        self.exp.runner = Ax_optimizer.dummy_runner(parent_obj=self)
-        self.exp.optimization_config = optimization_config
-        self.model = Models.SOBOL
-        self._internal_run_count = int(-1)
-
-    def _build_params_space(self):
-        self.params = []
-        for key, val in self._params.items():
-            self.params.append(RangeParameter(name=key, lower=float(val[0]), upper=float(val[1]), parameter_type=ParameterType.FLOAT))
-
-    def _build_gs(self):
-        
-        gs = GenerationStrategy(
-            steps=[
-                # I omit a few settings when copying from the auto-selected generation strategy above, since those
-                # settings are just the defaults, but you can include them too if you'd like. Refer to the docs on
-                # `GenerationStep` for meanings of these settings: 
-                # https://ax.dev/api/modelbridge.html#ax.modelbridge.generation_strategy.GenerationStep
-                GenerationStep(
-                    model=Models.SOBOL, 
-                    num_trials=self.batch_size*self.num_sobol, 
-                    min_trials_observed=self.batch_size*self.num_sobol, 
-                    model_kwargs={'deduplicate': True, 'seed': None}, 
-                    # Any kwargs you want passed to `modelbridge.gen`
-                ),
-                GenerationStep(
-                    model=Models.GPEI,
-                    num_trials=-1,
-                    max_parallelism=self.batch_size,  # Can set higher parallelism if needed
-                    model_kwargs = {"torch_dtype": torch.float, "torch_device": self.device},
-                )
-            ]
-        )
-        return gs
+    def _sample(self, proposal):
+        return proposal.sample((self.batch_size,)).numpy()
     
-    def ask(self, n_points=None):
-        if n_points is None:
-            n_points = self.batch_size
-        self._internal_run_count +=1
-        self.points_list = []
-        self.param_list =[]
-        self.points_list = self.gs.gen(experiment=self.exp, n=n_points)
-        for a in self.points_list.arms:
-            self.param_list.append(a.parameters)
-        param_list = pd.DataFrame(self.param_list)
-            
-        param_dict = param_list.to_dict('list')
-        for i, (key, val) in enumerate(param_dict.items()):
-            param_dict[key] = val * self._units[i]
-        self.exp.new_batch_trial(generator_run=self.points_list)
-        return param_dict
-   
-    def tell(self, points, errors):
-        #assume its coming back in with the same number of points
-        #otherwise this will break
-        #assert errors.shape[0] == len(self.points_list)
-        self._error = errors
-        self.exp.trials[self._internal_run_count].run().mark_completed()
-        data = self.exp.fetch_data()
-        
-    def get_result(self, with_units=True):
-        best_parameters = self.find_best_parameters()
-        best_val={}
-        if with_units:
-            for i, (key, val) in enumerate(best_parameters.items()):
-                best_val[key] = val * self._units[i]
-        return best_val
+    def _sample_conditional(self, proposal):
+        return proposal.sample_conditional((self.batch_size,)).numpy()
+if ax_loaded:
+    class Ax_optimizer():
+        class dummy_metric(Metric):
+            def fetch_trial_data(self, trial):  
+                records = []
+                for i, (arm_name, arm) in enumerate(trial.arms_by_name.items()):
+                    params = arm.parameters
+                    records.append({
+                        "arm_name": arm_name,
+                        "metric_name": self.name,
+                        "mean": trial.run_metadata['snm_error'][i],
+                        "sem": 0.0,
+                        "trial_index": trial.index,
+                    })
+                return Data(df=pd.DataFrame.from_records(records))
 
-    def find_best_parameters(self):
-        data = self.exp.fetch_data().df
-        # get the error
-        error = data['mean'].to_numpy()
-        min_idx = np.argmin(error)
-        #get the trial and arm name of min
-        arm_name = data['arm_name'].to_numpy()[min_idx]
-        trial_index = data['trial_index'].to_numpy()[min_idx]
-        #get those params
-        param_dict = self.exp.arms_by_name[arm_name].parameters
-        return param_dict
+        class dummy_runner(Runner):
+                def __init__(self, parent_obj):
+                    self.parent_obj = parent_obj
+                def run(self, trial):
+                    return {"name": str(trial.index), "snm_error": self.parent_obj._error}
+
+        def __init__(self, params_dict, batch_size, rounds, device_gp='cuda', num_sobol=3):
+            
+            self._units = [globals()[x] for x in params_dict.pop('units')]
+            self._params = OrderedDict(params_dict)
+            self._build_params_space()
+            self.rounds = rounds
+            self.batch_size = batch_size
+            if device_gp=='cuda':
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            else:
+                self.device = torch.device("cpu")
+            self.num_sobol = num_sobol
+            self.gs = self._build_gs()
+            self.opt = AxClient(enforce_sequential_optimization=False, generation_strategy=self.gs)
+            self.exp = Experiment(name='snm_fitting', search_space=SearchSpace(parameters=self.params))
+            #self.opt.create_experiment(parameters=self.params, choose_generation_strategy_kwargs={"max_parallelism_override": batch_size}, objective_name='snm_fit')
+            self.metric = Ax_optimizer.dummy_metric(name="booth")
+            optimization_config = OptimizationConfig(
+                    objective = Objective(
+                        metric=self.metric, 
+                        minimize=True,
+                    ),
+                    )
+            self.exp.runner = Ax_optimizer.dummy_runner(parent_obj=self)
+            self.exp.optimization_config = optimization_config
+            self.model = Models.SOBOL
+            self._internal_run_count = int(-1)
+
+        def _build_params_space(self):
+            self.params = []
+            for key, val in self._params.items():
+                self.params.append(RangeParameter(name=key, lower=float(val[0]), upper=float(val[1]), parameter_type=ParameterType.FLOAT))
+
+        def _build_gs(self):
+            
+            gs = GenerationStrategy(
+                steps=[
+                    # I omit a few settings when copying from the auto-selected generation strategy above, since those
+                    # settings are just the defaults, but you can include them too if you'd like. Refer to the docs on
+                    # `GenerationStep` for meanings of these settings: 
+                    # https://ax.dev/api/modelbridge.html#ax.modelbridge.generation_strategy.GenerationStep
+                    GenerationStep(
+                        model=Models.SOBOL, 
+                        num_trials=self.batch_size*self.num_sobol, 
+                        min_trials_observed=self.batch_size*self.num_sobol, 
+                        model_kwargs={'deduplicate': True, 'seed': None}, 
+                        # Any kwargs you want passed to `modelbridge.gen`
+                    ),
+                    GenerationStep(
+                        model=Models.GPEI,
+                        num_trials=-1,
+                        max_parallelism=self.batch_size,  # Can set higher parallelism if needed
+                        model_kwargs = {"torch_dtype": torch.float, "torch_device": self.device},
+                    )
+                ]
+            )
+            return gs
+        
+        def ask(self, n_points=None):
+            if n_points is None:
+                n_points = self.batch_size
+            self._internal_run_count +=1
+            self.points_list = []
+            self.param_list =[]
+            self.points_list = self.gs.gen(experiment=self.exp, n=n_points)
+            for a in self.points_list.arms:
+                self.param_list.append(a.parameters)
+            param_list = pd.DataFrame(self.param_list)
+                
+            param_dict = param_list.to_dict('list')
+            for i, (key, val) in enumerate(param_dict.items()):
+                param_dict[key] = val * self._units[i]
+            self.exp.new_batch_trial(generator_run=self.points_list)
+            return param_dict
+    
+        def tell(self, points, errors):
+            #assume its coming back in with the same number of points
+            #otherwise this will break
+            #assert errors.shape[0] == len(self.points_list)
+            self._error = errors
+            self.exp.trials[self._internal_run_count].run().mark_completed()
+            data = self.exp.fetch_data()
+            
+        def get_result(self, with_units=True):
+            best_parameters = self.find_best_parameters()
+            best_val={}
+            if with_units:
+                for i, (key, val) in enumerate(best_parameters.items()):
+                    best_val[key] = val * self._units[i]
+            return best_val
+
+        def find_best_parameters(self):
+            data = self.exp.fetch_data().df
+            # get the error
+            error = data['mean'].to_numpy()
+            min_idx = np.argmin(error)
+            #get the trial and arm name of min
+            arm_name = data['arm_name'].to_numpy()[min_idx]
+            trial_index = data['trial_index'].to_numpy()[min_idx]
+            #get those params
+            param_dict = self.exp.arms_by_name[arm_name].parameters
+            return param_dict
 
 
 def plot_feature_curve(x_o, model, res):
