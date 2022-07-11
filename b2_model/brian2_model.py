@@ -90,7 +90,9 @@ class brian2_model(object):
         return
     
     def _compute_real_fi(self):
+        self.bins = np.logspace(0, 3, 50)
         self.realFI, self.realISI = compute_FI_curve(self.spike_times, self._run_time)
+        self.realISIHist =  compute_sweepwise_isi_hist(self.spike_times, self._run_time, self.bins)
         return
 
     #== Optimization functions ==
@@ -140,6 +142,14 @@ class brian2_model(object):
         return self.opt_full_mse(param_dict)
 
     def opt_full_mse(self, param_dict):
+        """_summary_
+
+        Args:
+            param_dict (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         self.__dict__.update(param_dict) ##Apply the passed in params to the model
         if param_dict is not None:
             self.__dict__.update(param_dict)
@@ -148,6 +158,7 @@ class brian2_model(object):
         spiking_vm = []
         error_t = np.zeros(self.N)
         error_s = np.zeros(self.N)
+        neuronwise_isi_full = [[] for p in range(self.N)]
         for sweep in np.arange(self.realX.shape[0]):
             self.activeSweep = sweep ##set the active sweep to the spiking sweep set by user
             spikes, traces= self.run_current_sim() ##Run the sim and grab the spikes
@@ -162,10 +173,11 @@ class brian2_model(object):
                 if len(pspikes) > 0:
                     neuron_wise_spikes.append(len(pspikes))
                     spike_s = pspikes/ms
-                    if len(spike_s) > 2:
+                    if len(spike_s) > 1:
+                        neuronwise_isi_full[p].append(np.diff(spike_s))
                         neuron_wise_isi.append(emd_isi(np.append(np.diff(spike_s),1), np.append(np.diff(self.spike_times[self.activeSweep]*1000),1)))
                     else:
-                        neuron_wise_isi.append(0)
+                        neuron_wise_isi.append(emd_isi(np.append([0],1), np.append(np.diff(self.spike_times[self.activeSweep]*1000),1)))
                     if sweep in self.spikeSweep:
                         if len(spike_s)< 1: 
                             temp_dist = np.nan
@@ -173,12 +185,12 @@ class brian2_model(object):
                             try:
                                 temp_dist = compute_spike_dist(spike_s/1000, self.spike_times[self.activeSweep])
                             except:
-                                temp_dist = -99999
+                                temp_dist = 99999
                         sweep_error_s.append(temp_dist)
                 else:
                     sweep_error_s.append(np.nan)
                     neuron_wise_spikes.append(0)
-                    neuron_wise_isi.append(0)
+                    neuron_wise_isi.append(emd_isi(np.append([0],1), np.append(np.diff(self.spike_times[self.activeSweep]*1000),1)))
             del self.temp_spike_array
             isi_full.append(np.nan_to_num(np.hstack((neuron_wise_isi))))
             spikes_full.append(np.hstack(neuron_wise_spikes))
@@ -203,11 +215,12 @@ class brian2_model(object):
         isi_return = np.vstack(isi_full)
         error_t /= (len(self.subthresholdSweep) + len(self.spikeSweep))
         spikes_return, isi_return = (spikes_return.T / self._run_time), isi_return.T
-        real_FI = self.realFI
-        unit_wise_isi_e = np.sum(isi_return, axis=1)
-        unit_wise_error = np.apply_along_axis(compute_mlse,1,spikes_return,real_FI)
+        neuron_wise_isi_hist = np.vstack([np.histogram(np.hstack((s)), bins=self.bins)[0] if len(s)>0 else np.zeros(len(self.bins)-1) for s in neuronwise_isi_full])
+        unit_wise_isi_e = np.hstack([compute_emd_1d(self.realISIHist, row) for row in neuron_wise_isi_hist]) / 10
+        unit_wise_error = np.apply_along_axis(compute_mse,1,spikes_return,self.realFI)
         error_fi = unit_wise_error
         error_isi = unit_wise_isi_e
+
         #Penalize the error fi if vm goes wayy to high
         spiking_vm = np.nan_to_num(spiking_vm, nan=9999, posinf=9999, neginf=999)
         max_vm = np.amax(spiking_vm, axis=0)
@@ -218,7 +231,7 @@ class brian2_model(object):
         error_t = np.nan_to_num(error_t, nan=9999)
         error_fi = np.nan_to_num(error_fi, nan=9999)
         
-        return 0, error_t, error_fi, error_isi, error_s
+        return np.nanmean((error_t, error_fi, error_isi, error_s)), error_t, error_fi, error_isi, error_s
 
     def opt_FI(self,param_dict=None, log_scale=False):
         if param_dict is not None:

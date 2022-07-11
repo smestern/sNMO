@@ -16,11 +16,11 @@ from brian2 import *
 from joblib import dump, load
 from sbi import utils as sbutils
 from sbi import analysis
-from sbi.inference import SNPE #, prepare_for_sbi, simulate_for_sbi
+from sbi.inference import (SNPE,prepare_for_sbi)
 from sbi.inference.base import infer
 from skopt import Optimizer, plots, space
 from utils import *
-
+import time
 try:
     from ax import *
     from ax.service.ax_client import AxClient
@@ -162,7 +162,7 @@ class SKopt_optimizer(snMOptimizer):
 class SBI_optimizer(snMOptimizer):
     """ 
     """
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=30, prefit_posterior=None, sample_conditional=True):
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=1000, prefit_posterior=None, sample_conditional=None):
         """ An SBI 'optimizer' which allows simple generation of a posterior, or multi-round inference to focus on a particular sample.
 
         Args:
@@ -184,18 +184,34 @@ class SBI_optimizer(snMOptimizer):
         self.rounds = rounds
         self.batch_size = batch_size
         self.optimizer = SNPE
-        self.posts = []
+        self.posts = [] #will contain the generated posterior distributions. first item should be the prior
 
         if prefit_posterior is not None:
+            logging.debug('Loading previous posterior from {}'.format(prefit_posterior))
+            #if the user supplies a prefit posterior, load it
             with open(prefit_posterior, "rb") as f:
                 pf = load(f, allow_pickle=True)
                 self.posts.append(pf)
                 self.proposal = pf
                 self.prefit = True
+            #load the dense est path
+            with open(prefit_posterior.replace('_post.pkl', '_dens_est.pkl'), "rb") as f:
+                self.dense_est = load(f, allow_pickle=True)
+            #load the prior
+            with open(prefit_posterior.replace('_post.pkl', '_prior.pkl'), "rb") as f:
+                self.params = load(f, allow_pickle=True)
+            #load the data
+            
+            #self.data = np.load(prefit_posterior.replace('_post.pkl', '_params_ds.npy'))
+            #load the theta
+            #self.theta = np.load(prefit_posterior.replace('_post.pkl', '_theta_ds.npy'))
+            
         else:
-            self.proposal = self.params
+            self.proposal = self.params #our current proposal will be the prior
+            self.posts.append(self.params) #add the prior to the list of posterior distributions
             self.prefit = False
 
+        #set the initial x_obs
         if x_obs is not None:
             self.x_obs = x_obs
             try:
@@ -203,17 +219,20 @@ class SBI_optimizer(snMOptimizer):
                 self.params.set_default_x(x_obs)
             except:
                 logging.debug("x_obs not compatible with the proposal")
-        budget = (rounds * batch_size)
-        self.opt = self.optimizer(prior=self.params)
 
-        if self.prefit:
-            self.proposal = self.opt.build_posterior(self.proposal) #
-            self.proposal.set_default_x(x_obs)
-        self._bool_sim_run = False
-        self.x_obs = x_obs #our X observation should be the cell we want to fit
+        #intialize the 'optimizer' in this case a SNPE
+        budget = (rounds * batch_size)
+        self.opt = self.optimizer(prior=self.params)    
+        self._bool_sim_run = False #flag to indicate whether or not the sim has been run this is to run many points on the intial prior
         
-        if sample_conditional:
+        if sample_conditional is not None and self.prefit:
+            #if we have a prefit and the user wants to sample conditional, then we need to set the posterior to the prefit
+            #self.proposal = self.opt.build_posterior(self.dense_est, sample_with='mcmc') #
+            self.proposal.set_default_x(x_obs)
+            #if the user wants to sample conditionally we need to use the new interface
             self.sample = self._sample_conditional
+            self._conditional_constraints = sample_conditional #create the conditional funct etc
+            
         else:
             self.sample = self._sample
 
@@ -250,11 +269,11 @@ class SBI_optimizer(snMOptimizer):
         if n_points is None:
             n_points = self.batch_size
         if self._bool_sim_run == False:
-            self.proposal.sample_with_mcmc = True
+            self.proposal.sample_with_mcmc = False
             self._bool_sim_run = True
         else:
             self.proposal.sample_with_mcmc = True
-        self.param_list = self.proposal.sample((n_points,)).numpy()
+        self.param_list = self.sample((n_points,), self.proposal)
         self.param_dict = {}
         for row, (key, value) in zip(self.param_list.T, self._params.items()):
             self.param_dict[key] = row
@@ -264,7 +283,7 @@ class SBI_optimizer(snMOptimizer):
 
     def tell(self, points, errors):
         assert errors.shape[0] == len(self.param_list)
-        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(discard_prior_samples=True)
+        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(discard_prior_samples=False)
         posterior = self.opt.build_posterior(dens_est)
         self.posts.append(posterior)
         self.proposal = posterior.set_default_x(self.x_obs)
@@ -278,12 +297,13 @@ class SBI_optimizer(snMOptimizer):
             params = self.posts[-1].map().numpy()
         else:
             if from_cache:
+                #if from cache just use the last sampled points
                 posterior_samples = torch.tensor(self.param_list, dtype=default_dtype)
             else:
-                posterior_samples = self.posts[-1].sample((points,), x=self.x_obs) #sample 500 points
+                posterior_samples = self.sample((points,), self.posts[-1]) #sample 500 points
             self.x_posterior_samples = posterior_samples
-            log_prob = self.posts[-1].log_prob(posterior_samples, x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
-            params = posterior_samples.numpy()[np.argmax(log_prob)] #Take the sample with the highest log prob
+            log_prob = self.posts[-1].log_prob(posterior_samples.astype(np.float32), x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
+            params = posterior_samples[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}
         for i, (key, val) in enumerate(self._params.items()):
             res_dict[key] = params[i] * self._units[i]
@@ -306,12 +326,12 @@ class SBI_optimizer(snMOptimizer):
             print(f"sim {(time.time()-t_start)/60} min start")
             y = model.build_feature_curve(param_dict)
             print(f"sim {(time.time()-t_start)/60} min end")
-            self.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
+            #self.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
             t_end = time.time()
             min_ar.append(np.sort(y)[:5])
             res = self.get_result(from_cache=False)
             #try:
-            analysis.plot.pairplot(self.x_posterior_samples, labels=[x for x in self._params.keys()])
+            #analysis.plot.pairplot(self.x_posterior_samples, labels=[x for x in self._params.keys()])
             plt.savefig(f"output//{id}_{i}_pairplot.png")
             plot_trace(res, model)
                 
@@ -339,11 +359,61 @@ class SBI_optimizer(snMOptimizer):
             out = np.nan_to_num(np.hstack((self.model.build_FI_curve(dict_in))).reshape(args.numpy().shape[0], -1), posinf=0, neginf=0)
             return torch.tensor(out, dtype=default_dtype)
 
-    def _sample(self, proposal):
-        return proposal.sample((self.batch_size,)).numpy()
+    def _sample(self, N, proposal):
+        return proposal.sample((N,))
     
-    def _sample_conditional(self, proposal):
-        return proposal.sample_conditional((self.batch_size,)).numpy()
+    def _sample_conditional(self, N, proposal):
+        #proposal = 
+        return self._construct_conditional_from_proposal(proposal, N)
+
+    def _construct_conditional_from_proposal(self, proposal, N):
+        #construct our fixed params
+        fixed_params = []
+        fixed_params_indicator = []
+        for i, (key, val) in enumerate(self._params.items()):
+            if key in self._conditional_constraints.keys():
+                fixed_params.append(self._conditional_constraints[key])
+                
+            else:
+                fixed_params.append(val[0])
+                fixed_params_indicator.append(i)
+        # put them in torch
+        fixed_params = torch.tensor(np.array(fixed_params), dtype=default_dtype)
+        fixed_params_indicator = torch.tensor(np.array(fixed_params_indicator), dtype=torch.int64)
+
+        sample = proposal.sample_conditional(N, fixed_params, fixed_params_indicator, ).detach().numpy()
+        #now we need to put the fixed params back in
+        conditions_ =[]
+        for i, (key, val) in enumerate(self._params.items()):
+            if key in self._conditional_constraints.keys():
+                conditions_.append(np.full(N, self._conditional_constraints[key]))
+        conditions_ = np.vstack(conditions_)
+        sample = np.hstack((conditions_.T, sample))
+        return sample
+        #below code is for sample conditional 0.18.
+        # Evaluate the conditional density be drawing samples and smoothing with a Gaussian
+        # # kde.
+        # #_, prior = prepare_for_sbi(lambda x: x, self.proposal)
+        # self.dense_est = self.opt(self.data, self.theta).train()
+        # potential_fn, theta_transform = posterior_estimator_based_potential(
+        #     self.dense_est, prior=prior, x_o=self.x_obs
+        # )
+        # (conditioned_potential_fn, restricted_tf, restricted_prior,) = analysis.conditonal_potential(
+        #     potential_fn=potential_fn,
+        #     theta_transform=theta_transform,
+        #     prior=prior,
+        #     condition=fixed_params,
+        #     dims_to_sample=fixed_params_indicator,
+        # )
+        # mcmc_posterior = MCMCPosterior(
+        #     potential_fn=conditioned_potential_fn,
+        #     theta_transform=restricted_tf,
+        #     proposal=restricted_prior,
+        #     init_strategy='proposal',
+        #     num_workers=1
+        # )
+        # return mcmc_posterior
+
 if ax_loaded:
     class Ax_optimizer():
         class dummy_metric(Metric):
@@ -476,9 +546,6 @@ def plot_feature_curve(x_o, model, res):
     plt.clf()
     plt.plot(x_o)
     plt.plot(np.ravel(x_best))
-
-
-
 
 
 

@@ -350,7 +350,7 @@ def compute_spike_dist(y, yhat):
     train1 = SpikeTrain(y*pq.s, t_stop=6*pq.s)
     train2 = SpikeTrain(yhat*pq.s, t_stop=6*pq.s)
     
-    dist = van_rossum_dist([train1, train2], tau=0.01*pq.s)  
+    dist = van_rossum_dist([train1, train2], tau=50*pq.ms)  
     ## Update later to compute spike distance using van rossum dist
     r_dist = dist[0,1] #returns squareform so just 
     return r_dist

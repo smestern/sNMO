@@ -213,7 +213,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
 
     #model.subthresholdSweep = None
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], _batch_size, _rounds, 
-    backend='sbi', sbi_kwargs=dict(x_obs=x_o, prefit_posterior='ADIF_posterior_dens_est.pkl'))
+    backend='sbi', sbi_kwargs=dict(x_obs=x_o, prefit_posterior='ADIF_posterior_post.pkl', sample_conditional={'C': model.C, 'taum': model.taum, 'EL': model.EL}))
     #set the default X, seems to speed up sampling
     opt.rounds = 2
     opt.fit(model, id=model.id)
@@ -222,7 +222,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     #Take the 
     
     samples = opt.ask(n_points=500)
-    log_prob = opt.posts[-1].log_prob(torch.tensor(opt.param_list), norm_posterior=False).numpy()
+    log_prob = opt.posts[-1].log_prob(torch.tensor(opt.param_list.astype(np.float32)), norm_posterior=False).numpy()
     
     top_100 = opt.param_list[np.argsort(log_prob[-10:])]
    
@@ -232,11 +232,10 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     var_pairs = np.transpose(np.vstack((low, high))) #stack them into low->pairs for each row
     for i, (key, val) in enumerate(optimizer_settings['constraints'][optimizer_settings['model_choice']].items()):
         if key != 'units':
-            optimizer_settings['constraints'][optimizer_settings['model_choice']][key] = var_pairs[i]
-
+            optimizer_settings['constraints'][optimizer_settings['model_choice']][key] = [var_pairs[i][0] - 1e-14, var_pairs[i][1] + 1e-14]
 
     if run_ng:
-        results_out = optimize(model, optimizer_settings, id=cell_id)  #returns a result containing the param - error matches
+        results_out = optimize(model, optimizer_settings, id=model.id)  #returns a result containing the param - error matches
     elif run_ng_phase:
         results_out = biphase_opt(model, optimizer_settings)
     
@@ -271,9 +270,12 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
         model.set_params({'N': _batch_size, 'refractory':0})
         t_start = time.time()
         param_list = opt.ask()
-        #y = np.vstack([error_t, error_fi, error_s]).T
-        #y = np.nan_to_num(y, nan=999999)
-        #y = stats.gmean(np.vstack((error_fi, error_t)), axis=0)
+        print(f"sim {(time.time()-t_start)/60} min start")
+        _, error_t, error_fi, error_isi, error_s = model.opt_full_mse(param_list)
+        error_fi = np.nan_to_num(error_fi, nan=999999) 
+        
+        error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
+        y = error_fi + error_isi + error_t
         print(f"sim {(time.time()-t_start)/60} min end")
         opt.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
         t_end = time.time()
@@ -461,7 +463,8 @@ if __name__ == "__main__":
     
 # Functions below here I need to update or document or delete so just ignore for now
 def _check_min_loss_gradient(min_ar, num_no_improvement=10, threshold=1e-5):
-    """ Checks the minimum loss gradient for early stopping purposes. Using a simple linear regression of the minimum found in each local round.
+    """ Checks the minimum loss gradient for early stopping purposes. 
+    Using a simple linear regression of the minimum found in each local round.
 
     Args:
         min_ar (numpy array): an array containing the found minimum for each round
@@ -475,10 +478,12 @@ def _check_min_loss_gradient(min_ar, num_no_improvement=10, threshold=1e-5):
     min_ar = np.array(min_ar)
     min_ar = np.nanmean(min_ar, axis=1)
     if min_ar.shape[0] <= num_no_improvement:
+        logging.debug(f"Not enough rounds to check for minimum loss gradient")
         pass
     else:
         x = np.arange(0, num_no_improvement)
         slope, _, _, p, _ = stats.linregress(x, min_ar[-num_no_improvement:])
+        logging.debug(f"Found a loss slope of {slope}")
         if (slope < threshold and slope > -threshold) and p < 0.01:
             pass_check = False
     return pass_check

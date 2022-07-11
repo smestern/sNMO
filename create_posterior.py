@@ -10,7 +10,6 @@ from snm_fit import load_data_and_model
 import torch
 from pickle import dump, load
 from sbi import utils as utils
-from sbi import utils as sbutils
 from sbi import analysis
 from sbi.inference import SNPE, prepare_for_sbi, simulate_for_sbi
 from sbi.inference.base import infer
@@ -48,7 +47,7 @@ def generate_posterior(tag=''):
     model.add_real_data(realX, realY, realC, spike_time, non_spiking_sweeps, spiking_sweeps)
     ##Global vars ###
     N = 15000
-    batches=2 
+    batches=1
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], N, batches, backend='sbi')
     
     def simulator_pass(x):
@@ -76,7 +75,7 @@ def generate_posterior(tag=''):
     print("== Fitting Model ==")
     for x in np.arange(batches):
         theta_temp = prior.sample((N,))
-        res_temp = simulator_pass(theta_temp)
+        res_temp = simulator(theta_temp)
         theta_full.append(theta_temp)#for whatever reason we need to transpose the rar
         res_full.append(res_temp)
     #Now run the inference for N of neuron simulations (1 batch). This runs the simulator function we provid with randomly selected params
@@ -86,20 +85,20 @@ def generate_posterior(tag=''):
     np.save(f"{tag}_theta_ds.npy", theta.numpy())
     np.save(f"{tag}_params_ds.npy", res.numpy())
 
-    #%% Now we need to run the inference for the posterior
-    dens_est = inference.append_simulations(theta, res).train()
+    # Now we need to run the inference for the posterior
+    dens_est = inference.append_simulations(theta, res, proposal=prior).train()
     posterior = inference.build_posterior(dens_est)
-    posterior.set_default_x(res[0])
+    posterior.set_default_x(res_temp[0])
     #try sampling the data?
     sample = posterior.sample((1000,))
-
-
+    analysis.pairplot(sample)    
     with open(f"{tag}_post.pkl", "wb") as f:
             dump(posterior, f)
     with open(f"{tag}_dens_est.pkl", "wb") as f:
             dump(dens_est, f)
     with open(f"{tag}_prior.pkl", "wb") as f:
             dump(prior, f)
+    plt.show()
     
     
 if __name__=="__main__":

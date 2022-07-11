@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from brian2 import *
 from scipy import spatial
-
+import ot
 #% MISC utils %#
 #Tools for loading or transforming spike trains
 
@@ -362,7 +362,16 @@ def compute_burst_index(isi):
     return burst_index
     
 def emd_isi(isi1,isi2):
-    bins = np.logspace(0,4)
+    """Compute the EMD from the raw ISIs
+
+    Args:
+        isi1 (bool): _description_
+        isi2 (bool): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    bins = np.logspace(0,4, num=20)
     hisi1 = np.histogram(isi1, bins, density=False)[0].astype(np.float64)
     hisi2 = np.histogram(isi2, bins, density=False)[0].astype(np.float64)
     hisi1 /= hisi1.sum()
@@ -377,6 +386,44 @@ def emd_isi(isi1,isi2):
 
     return dist
 
+def compute_emd_1d(y, yhat):
+    """Compute emd from precomputed histograms
+
+    Args:
+        y (_type_): _description_
+        yhat (_type_): _description_
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+    #create a linspace of the length of the y vector
+    x_a = np.linspace(0, len(y), len(y))
+    x_b = np.linspace(0, len(yhat), len(yhat))
+    if len(y) != len(yhat):
+        raise ValueError("y and yhat must be the same length")
+
+    #if y or yhat is all zeros add a small offset to avoid division by zero
+    if np.sum(y) < 1e-9:
+        y = y + 0.001
+    if np.sum(yhat) == 0:
+        yhat = yhat + 0.001
+    y = y/np.sum(y)
+    yhat = yhat/np.sum(yhat)
+
+
+    #compute the emd
+    dist = ot.emd2_1d(x_a, x_b, y, yhat)
+    return dist
+
+def compute_sweepwise_isi_hist(spike_times, time, bins=np.logspace(0, 3, 100)):
+    isi_hist = []
+    for r in spike_times:
+        if len(r) > 0:
+            isi_hist.append(np.diff(r)*1000)
+    return np.histogram(np.hstack(isi_hist), bins=bins)[0]
 
 def sliced_wasserstein(X, Y, num_proj):
     '''Takes:
