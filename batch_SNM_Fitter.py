@@ -31,21 +31,21 @@ def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
     takes:
     fp (str): a file path arguement pointing towards a single nwb
     optimizer (str): the string stating which optimizer to use'''
-    #
-    cell_id = fp.split("\\")[-1].split(".")[0]
-    
-    realX, realY, realC,_ = loadNWB(fp, old=False) #loads thea nwb file, and returns the data in realX, realY, realC
-    
-    spikes = ut.detect_spike_times(realX, realY, realC) 
-    sweep_upper = ut.find_decline_fi(spikes) #find the point of likely sodium channel inactivation
-    most_spikes = len(max(spikes, key=len)) #find the most spikes in a sweep
-    temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer, sweep_upper_cut=None)
-    temp_df['id'] = [cell_id]
-    return temp_df
-    #except Exception as e:
-    print(f"fail to fit {fp} with exception")
-    print(e.args) 
-    return pd.DataFrame()
+    try:
+        cell_id = fp.split("\\")[-1].split(".")[0]
+        
+        realX, realY, realC,_ = loadNWB(fp, old=False) #loads thea nwb file, and returns the data in realX, realY, realC
+        
+        spikes = ut.detect_spike_times(realX, realY, realC) 
+        sweep_upper = ut.find_decline_fi(spikes) #find the point of likely sodium channel inactivation
+        most_spikes = len(max(spikes, key=len)) #find the most spikes in a sweep
+        temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer, sweep_upper_cut=None)
+        temp_df['id'] = [cell_id]
+        return temp_df
+    except Exception as e:
+        print(f"fail to fit {fp} with exception")
+        print(e.args) 
+        return pd.DataFrame()
 
 
 def main(args, optimizer_settings):
@@ -96,7 +96,7 @@ if __name__ == "__main__": ##If the script is called from the command line this 
 
     _dir = os.path.dirname(__file__)
     parser.add_argument('--inputFolder', type=str, 
-                        help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//test//'))
+                        help='the input folder containing NWBs to be fit', default=(_dir + '//..//NWB_with_stim//macaque//pfc//'))
     parser.add_argument('--outputFolder', type=str,
                         help='the output folder for the generated data', default= _dir +'//out//')
     parser.add_argument('--optimizer', type=str, default='ng',

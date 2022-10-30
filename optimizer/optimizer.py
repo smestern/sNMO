@@ -6,7 +6,7 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO) #trying to log brian2
 import argparse
 import os
 from collections import OrderedDict
-from pickle import dump, load
+from pickle import load as pkl_load
 
 import nevergrad as ng
 import nevergrad.common.typing as tp
@@ -190,16 +190,16 @@ class SBI_optimizer(snMOptimizer):
             logging.debug('Loading previous posterior from {}'.format(prefit_posterior))
             #if the user supplies a prefit posterior, load it
             with open(prefit_posterior, "rb") as f:
-                pf = load(f, allow_pickle=True)
+                pf = pkl_load(f)
                 self.posts.append(pf)
                 self.proposal = pf
                 self.prefit = True
             #load the dense est path
             with open(prefit_posterior.replace('_post.pkl', '_dens_est.pkl'), "rb") as f:
-                self.dense_est = load(f, allow_pickle=True)
+                self.dense_est = pkl_load(f)
             #load the prior
             with open(prefit_posterior.replace('_post.pkl', '_prior.pkl'), "rb") as f:
-                self.params = load(f, allow_pickle=True)
+                self.params = pkl_load(f)
             #load the data
             
             #self.data = np.load(prefit_posterior.replace('_post.pkl', '_params_ds.npy'))
@@ -326,7 +326,7 @@ class SBI_optimizer(snMOptimizer):
             print(f"sim {(time.time()-t_start)/60} min start")
             y = model.build_feature_curve(param_dict)
             print(f"sim {(time.time()-t_start)/60} min end")
-            #self.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
+            self.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
             t_end = time.time()
             min_ar.append(np.sort(y)[:5])
             res = self.get_result(from_cache=False)
@@ -360,7 +360,7 @@ class SBI_optimizer(snMOptimizer):
             return torch.tensor(out, dtype=default_dtype)
 
     def _sample(self, N, proposal):
-        return proposal.sample((N,))
+        return proposal.sample(N).detach().numpy()
     
     def _sample_conditional(self, N, proposal):
         #proposal = 
