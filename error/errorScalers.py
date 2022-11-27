@@ -6,22 +6,23 @@ from joblib import wrap_non_picklable_objects
 
 
 class zErrorMetric():
-    def __init__(self, y, shift=100):
+    def __init__(self, y, shift=0):
         self.mean = 0
         self.std = 0
         self.shift = shift
         self.y = y
     def fit(self, ar, axis=0):
-        error =  np.apply_along_axis(compute_se, 1, ar,  self.y)
-        self.mean = np.nanmean(error, axis=0)
-        self.std = np.std(error, axis=0)
+        self.mean = np.nanmean(ar, axis=axis)
+        self.std = np.std(ar, axis=axis)
+        self.y_scaled = self._zscore(self.y)
+        #scaled_ar
+        #error =  np.apply_along_axis(compute_ae, 1, ar,  self.y)
     def _zscore(self, ar): 
         zscored = (ar - self.mean)/ self.std
         return self.shift + zscored
     def transform(self, ar):
-        error =  np.apply_along_axis(compute_se, 1, ar,  self.y)
-        zerror = self._zscore(error)
-        return np.nanmean(zerror, axis=1)
+        error =  np.apply_along_axis(compute_se, 1, self._zscore(ar),  self.y_scaled)
+        return np.nanmean(error, axis=1)
     def fit_transform(self, ar):
         self.fit(ar)
         error = self.transform(ar)
@@ -75,9 +76,10 @@ class weightedErrorMetric():
         error = self.transform(ar)
         return error
 
-
+##TODO
 class thresholdErrorMetric():
     def __init__(self, y=None, thresholds=[None, None]):
+        raise NotImplementedError
         self.y = y
     def fit(self):
         pass

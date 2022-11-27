@@ -170,7 +170,7 @@ def exp_decay_factor(dataT,dataV,dataI, time_aft=50, plot=False, sag=True):
             lowerC = np.amin(dataV[downwardinfl:end_index])
         diff = np.abs(upperC - lowerC)
         t1 = dataT[downwardinfl:end_index] - dataT[downwardinfl]
-        curve, pcov_1p = curve_fit(exp_decay_1p, t1, dataV[downwardinfl:end_index]/1000, maxfev=500000, bounds=([(upperC-5)/1000, -np.inf, 0], [(upperC+5)/1000, np.inf, np.inf]), xtol=None, verbose=1)
+        curve, pcov_1p = curve_fit(exp_decay_1p, t1, dataV[downwardinfl:end_index]/1000, maxfev=500000, bounds=([(upperC-0.5)/1000, -np.inf, 0], [(upperC+0.5)/1000, np.inf, np.inf]), xtol=None, verbose=1)
         tau = curve[2]
         if plot:
             plt.figure(2)
@@ -303,6 +303,10 @@ def compute_mlse(y, yhat):
 def compute_se(y, yhat):
     se = np.square(y - yhat)
     return se
+
+def compute_ae(y, yhat):
+    ae = np.abs(y - yhat)
+    return ae
 
 def mean_confidence_interval(data, confidence=0.95):
     a = 1.0 * np.array(data)

@@ -41,8 +41,8 @@ asqEx = dict(eqs=Equations('''
         '''), threshold='v>Vcut', reset='v=VR; w+=b; vc+=bVT', refractory='refrac', method='euler', init_var=dict(vc='VT', v='EL')) #+ (DeltaT * 5)
 
 adIF = dict(eqs=Equations('''
-        dv/dt = ( gL*(EL-v) + I - w ) * (1./Cm) : volt (unless refractory)
-        dw/dt = ( a*(v - EL) - w ) / tauw : amp (unless refractory)
+        dv/dt = ( gL*(EL-v) + I - w ) * (1./C) : volt (unless refractory)
+        dw/dt = ( a*(v - ELa) - w ) / tauw : amp (unless refractory)
         tauw : second
         a : siemens
         b : amp
@@ -52,7 +52,8 @@ adIF = dict(eqs=Equations('''
         EL : volt
         VT : volt
         VR : volt
+        ELa : volt
         refrac : second
         I = in_current(t) : amp
-        '''), threshold='v>VT', reset='v=VR; w+=b', refractory='refrac', method='euler')
+        '''), threshold='v>VT', reset='v=VR; w+=b', refractory='refrac', method='euler', init_var=dict(v='EL'))
 

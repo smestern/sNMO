@@ -28,7 +28,7 @@ try:
     from ax.modelbridge.registry import Models
     ax_loaded = True
 except:
-    logging.warning("Ax not installed, ax optimizer unavailible")
+    logging.warning("Ax not installed, Ax optimizer unavailible")
     ax_loaded = False
 default_dtype = torch.float32
 
@@ -49,7 +49,7 @@ def snmOptimizer(params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs
     elif backend == 'sbi':
             return SBI_optimizer(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
     elif backend == 'ax':
-            return Ax_optimizer(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
+            return Ax_optimizer(params_dict.copy(), batch_size, rounds)
             
 class snMOptimizer():
     def __init__():

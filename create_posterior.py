@@ -19,7 +19,7 @@ from optimizer import snmOptimizer
 with open('optimizer_settings.json') as f:
         optimizer_settings = json.load(f)
 
-def generate_posterior(tag='', load_prev=True, ):
+def generate_posterior(tag='', load_prev=False, ):
     '''
     This function is used to generate the posterior for use with SBI optimizer.
     Here we use the SBI optimizer to generate the posterior.
@@ -47,7 +47,7 @@ def generate_posterior(tag='', load_prev=True, ):
     model.add_real_data(realX, realY, realC, spike_time, non_spiking_sweeps, spiking_sweeps)
     ##Global vars ###
     N = 50000
-    batches=3
+    batches=1
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], N, batches, backend='sbi')
     
     def simulator_pass(x):
@@ -78,13 +78,15 @@ def generate_posterior(tag='', load_prev=True, ):
         res = torch.tensor(np.load(f"{tag}_params_ds.npy"), dtype=default_dtype)
     else:
         print("== Fitting Model ==")
+        #use simulate for sbi to generate the data
+        #theta, res = simulate_for_sbi(simulator, prior, num_simulations=int(N*batches), simulation_batch_size=N)
         for x in np.arange(batches):
                 theta_temp = prior.sample((N,))
                 res_temp = simulator(theta_temp)
                 theta_full.append(theta_temp)#for whatever reason we need to transpose the rar
-                res_full.append(res_temp)
-                #Now run the inference for N of neuron simulations (1 batch). This runs the simulator function we provid with randomly selected params
-                #and then computes the prob dist
+                res_full.append(np.nan_to_num(res_temp, nan=0, posinf=9e4, neginf=-9e4))
+        #         #Now run the inference for N of neuron simulations (1 batch). This runs the simulator function we provid with randomly selected params
+        #         #and then computes the prob dist
         theta = torch.tensor(np.vstack(theta_full), dtype=default_dtype)
         res = torch.tensor(np.vstack(res_full), dtype=default_dtype)
         np.save(f"{tag}_theta_ds.npy", theta.numpy())
@@ -93,7 +95,7 @@ def generate_posterior(tag='', load_prev=True, ):
     # Now we need to run the inference for the posterior
     dens_est = inference.append_simulations(theta, res, proposal=prior).train()
     posterior = inference.build_posterior(dens_est)
-    posterior.set_default_x(res[990])
+    posterior.set_default_x(res[0])
     #try sampling the data?
     sample = posterior.sample((1000,))
     analysis.pairplot(sample)    

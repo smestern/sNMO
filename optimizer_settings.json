@@ -1,7 +1,7 @@
-{  "model_choice" : "adIF", 
+{  "model_choice" : "adEx", 
    "stim_names_inc" : ["1000", "long", "cat"],
    "stim_names_exc" : ["rheo", "Rf50"],
-   "sweeps_to_fit" : [-70, -50, 50, 70], 
+   "sweeps_to_fit" : null, 
    "constraints": { "adEx": {
                         "C" : [5, 350],
                         "taum": [2, 250],
@@ -34,14 +34,14 @@
                         "C" : [5, 350],
                         "taum": [2, 250],
                         "EL": [-90, -50],
-                        "VT": [-70, -20],
-                        "tauw" : [1, 700],
-                        "a" : [-12, 15], 
-                        "b" : [0.001, 250],
-                        "VR" : [-80, -30],
-                        "DeltaT": [0.01, 15],
+                        "VT": [-70, 0],
+                        "tauw" : [1, 900],
+                        "a" : [-2, 5], 
+                        "b" : [0.001, 950],
+                        "VR" : [-80, 0],
                         "refrac" : [0,5],
-                        "units" : ["pF", "ms", "mV", "mV", "ms", "nS", "pA", "mV", "mV", "ms"]
+                        "ELa" : [-90, -50],
+                        "units" : ["pF", "ms", "mV", "mV", "ms", "nS", "pA", "mV", "ms", "mV"]
                         }
 
 }

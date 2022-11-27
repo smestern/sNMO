@@ -12,6 +12,8 @@ import argparse
 import logging
 import sys
 
+from error.errorScalers import weightedErrorMetric
+
 logging.basicConfig(stream=sys.stdout, level=logging.INFO) #trying to log brian2 errors
 import multiprocessing
 import os
@@ -32,6 +34,7 @@ from b2_model.brian2_model import brian2_model
 from optimizer import snmOptimizer
 import loadNWB as lnwb
 from utils import *
+from error import zErrorMetric
 
 warnings.filterwarnings("ignore")
 
@@ -69,7 +72,7 @@ def run_optimizer(file, optimizer_settings, optimizer='ng', rounds=500, batch_si
     cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
     #adjust the constraints to the found CM or TAUM
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
-    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.95, model.C*1.15]
+    optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.75, model.C*1.25]
     optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.75, model.taum*1.25]
     print(f"== Loaded cell {cell_id} for fitting ==")
     if optimizer == 'skopt' or optimizer=='ng' or optimizer=='ax':
@@ -113,7 +116,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
 
     #load the data from the file
     cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
-    realX, realY, realC,_ = lnwb.loadNWB(file_path, old=False)
+    realX, realY, realC,_ = lnwb.loadFile(file_path, old=False)
     
     #crop the data
     index_3 = np.argmin(np.abs(realX[0,:]-2.50))
@@ -138,19 +141,23 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     sweeplim = np.arange(realX.shape[0])
     dt = compute_dt(realX)
     compute_el = compute_rmp(realY[:2,:], realC[:2,:])
+
     #baseline the data to the first two sweeps?
     sweepwise_el = np.array([compute_rmp(realY[x,:].reshape(1,-1), realC[x,:].reshape(1,-1)) for x in np.arange(realX.shape[0])])
     sweep_offset = (sweepwise_el - compute_el).reshape(-1,1)
     realY = realY - sweep_offset
+
     #Compute Spike Times
     spike_time = detect_spike_times(realX, realY, realC, sweeplim, upper=1.15) #finds geh 
     spiking_sweeps = np.nonzero([len(x) for x in spike_time])[0]
     rheobase = spiking_sweeps[0]
-    non_spiking_sweeps = np.delete(np.arange(0, realX.shape[0]), spiking_sweeps)[:2]
+    non_spiking_sweeps = np.delete(np.arange(0, realX.shape[0]), spiking_sweeps)
     thres = compute_threshold(realX, realY, realC, sweeplim)
+
     #negative current sweeps 
     neg_current = [x<0 for x in realC[:, np.argmin(np.abs(realX-0.5))]]
     neg_current = np.arange(0, realX.shape[0])[neg_current]
+
     #Compute cell params
     resistance = membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
     taum = np.nanmean([exp_decay_factor(realX[x], realY[x], realC[x], plot=True) for x in non_spiking_sweeps])
@@ -169,6 +176,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     return model
 
 # === fitting functions ===
+## TODO These should be moved to a separate file, potentially a class
 
 def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=False, run_skopt=False):
     ''' Samples from a SNPE posterior to guess the best possible params for the data. Optionally runs the NEVERGRAD differential
@@ -259,8 +267,9 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
 
     model.set_params({'N': _batch_size})
     budget = int(_rounds * _batch_size)
-
+    
     x_o = model_feature_curve(model)
+    error_scaler = weightedErrorMetric(y=x_o, weights=[0.1, 1e-9, 1], splits=[[0, (len(model.spikeSweep)+len(model.subthresholdSweep))], [(len(model.spikeSweep)+len(model.subthresholdSweep)), (len(model.spikeSweep)+len(model.subthresholdSweep))*2], [(len(model.spikeSweep)+len(model.subthresholdSweep))*2, len(x_o)]])
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), _batch_size, _rounds, 
     backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
     min_ar = []
@@ -271,11 +280,17 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
         t_start = time.time()
         param_list = opt.ask()
         print(f"sim {(time.time()-t_start)/60} min start")
-        _, error_t, error_fi, error_isi, error_s = model.opt_full_mse(param_list)
-        error_fi = np.nan_to_num(error_fi, nan=999999) 
+        _, error_t, error_fi, error_isi, error_s = 0, np.zeros(_batch_size), np.zeros(_batch_size), np.zeros(_batch_size), np.zeros(_batch_size)#model.opt_full_mse(param_list)
+        np_o = model.build_feature_curve(param_list)
+        #error_fi = np.nan_to_num(error_fi, nan=999999) 
         
-        error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
-        y = error_fi + error_isi + error_t
+        #error_t  = np.nan_to_num(error_t , nan=999999, posinf=99999, neginf=99999)
+        #y = np.abs(np.apply_along_axis(np.subtract, 1, np_o, x_o))  #error_fi + error_t
+
+        #scale the error
+       
+        y = error_scaler.transform(np_o)
+
         print(f"sim {(time.time()-t_start)/60} min end")
         opt.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
         t_end = time.time()
