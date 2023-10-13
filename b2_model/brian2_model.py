@@ -25,15 +25,13 @@ class brian2_model(object):
 
 
     def run_current_sim(self, sweepNumber=None, param_dict=None):
-        
+
         if param_dict is not None:
             self.__dict__.update(param_dict)
         if sweepNumber is not None and sweepNumber != self.activeSweep:
             self.activeSweep = sweepNumber
         
-        
         start_scope()
-        
         temp_in = self.realC[self.activeSweep,:]
         in_current = TimedArray(values = temp_in * pamp, dt=self.dt * ms)
         P = NeuronGroup( self.N, model=self._model['eqs'],  threshold=self._model['threshold'], reset=self._model['reset'], refractory=self._model['refractory'], method=self._model['method'] )

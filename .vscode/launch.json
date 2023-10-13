@@ -11,7 +11,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "args": []
+            "args": ["--inputFolder", "C:\\Users\\SMest\\Dropbox\\PVN_MODELLING_WORK\\CADEX_MODEL\\data\\VGAT_CELLS\\", "--optimizer", "ng"]
         },
         {
             "type": "pwa-chrome",

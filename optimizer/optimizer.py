@@ -222,7 +222,7 @@ class SBI_optimizer(snMOptimizer):
 
         #intialize the 'optimizer' in this case a SNPE
         budget = (rounds * batch_size)
-        self.opt = self.optimizer(prior=self.params)    
+        self.opt = self.optimizer(prior=self.params, density_estimator=sbutils.posterior_nn(model='maf', z_score_x=None))    
         self._bool_sim_run = False #flag to indicate whether or not the sim has been run this is to run many points on the intial prior
         
         if sample_conditional is not None and self.prefit:
@@ -272,7 +272,7 @@ class SBI_optimizer(snMOptimizer):
             self.proposal.sample_with_mcmc = False
             self._bool_sim_run = True
         else:
-            self.proposal.sample_with_mcmc = True
+            self.proposal.sample_with_mcmc = False
         self.param_list = self.sample((n_points,), self.proposal)
         self.param_dict = {}
         for row, (key, value) in zip(self.param_list.T, self._params.items()):
@@ -282,14 +282,19 @@ class SBI_optimizer(snMOptimizer):
         return self.param_dict
 
     def tell(self, points, errors):
+        
         assert errors.shape[0] == len(self.param_list)
-        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(discard_prior_samples=False)
-        posterior = self.opt.build_posterior(dens_est)
-        self.posts.append(posterior)
-        self.proposal = posterior.set_default_x(self.x_obs)
+        dens_est = self.opt.append_simulations(torch.tensor(self.param_list, dtype=default_dtype), torch.tensor(errors, dtype=default_dtype), proposal=self.proposal).train(force_first_round_loss=True)
+        
+        #for multi round inference we need a restricted prior
+        posterior = self.opt.build_posterior(dens_est).set_default_x(self.x_obs)
+        restriction = sbutils.get_density_thresholder(posterior, quantile=1e-4)
+        restricted_prior = sbutils.RestrictedPrior(self.proposal, restriction)
+        self.posts.append(restricted_prior)
+        self.proposal = restricted_prior
         return
 
-    def get_result(self, points=50, from_cache=False, use_map=False):
+    def get_result(self, points=50, from_cache=False, use_map=True):
         self.posts[-1].sample_with_mcmc = True
         #if the user asks, use MAP
         if use_map:
@@ -302,7 +307,7 @@ class SBI_optimizer(snMOptimizer):
             else:
                 posterior_samples = self.sample((points,), self.posts[-1]) #sample 500 points
             self.x_posterior_samples = posterior_samples
-            log_prob = self.posts[-1].log_prob(posterior_samples.astype(np.float32), x=self.x_obs, norm_posterior=False).numpy()  # get the log prop of these points
+            log_prob = self.posts[-1].log_prob(posterior_samples.astype(np.float32)).numpy()  # get the log prop of these points
             params = posterior_samples[np.argmax(log_prob)] #Take the sample with the highest log prob
         res_dict = {}
         for i, (key, val) in enumerate(self._params.items()):

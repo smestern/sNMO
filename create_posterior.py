@@ -19,7 +19,7 @@ from optimizer import snmOptimizer
 with open('optimizer_settings.json') as f:
         optimizer_settings = json.load(f)
 
-def generate_posterior(tag='', load_prev=False, ):
+def generate_posterior(tag='', load_prev=True, ):
     '''
     This function is used to generate the posterior for use with SBI optimizer.
     Here we use the SBI optimizer to generate the posterior.
@@ -46,8 +46,8 @@ def generate_posterior(tag='', load_prev=False, ):
     non_spiking_sweeps = np.delete(np.arange(0, realX.shape[0]), spiking_sweeps)
     model.add_real_data(realX, realY, realC, spike_time, non_spiking_sweeps, spiking_sweeps)
     ##Global vars ###
-    N = 50000
-    batches=1
+    N = 10000
+    batches=10
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], N, batches, backend='sbi')
     
     def simulator_pass(x):
@@ -65,37 +65,32 @@ def generate_posterior(tag='', load_prev=False, ):
 
     model.set_params({'N': N})
     prior = opt.params
-    simulator, prior = prepare_for_sbi(simulator_pass, prior)
+    
     theta_full = []
     res_full = []
     ##Now intialize the Neural Network. We tell it to run with a batch size same as the number of neurons we simulate in parallel
     ## from https://elifesciences.org/articles/56261j
-    inference = SNPE(prior, device="cpu")
+    inference = SNPE(prior, density_estimator=utils.posterior_nn(model='maf', z_score_x=None), device="cpu") #
     #%% Run the inference or load previous results
     if load_prev:
         print("== Loading Previous Results ==")
-        theta = torch.tensor(np.load(f"{tag}_theta_ds.npy"), dtype=default_dtype)
-        res = torch.tensor(np.load(f"{tag}_params_ds.npy"), dtype=default_dtype)
+        theta = torch.tensor(np.nan_to_num(np.load(f"{tag}_theta_ds.npy"), posinf=0.1, neginf=0.1, nan=0.1), dtype=default_dtype)
+        res = torch.tensor(np.nan_to_num(np.load(f"{tag}_res_ds.npy"), posinf=0.12, neginf=0.1, nan=0.1), dtype=default_dtype)
     else:
         print("== Fitting Model ==")
         #use simulate for sbi to generate the data
-        #theta, res = simulate_for_sbi(simulator, prior, num_simulations=int(N*batches), simulation_batch_size=N)
-        for x in np.arange(batches):
-                theta_temp = prior.sample((N,))
-                res_temp = simulator(theta_temp)
-                theta_full.append(theta_temp)#for whatever reason we need to transpose the rar
-                res_full.append(np.nan_to_num(res_temp, nan=0, posinf=9e4, neginf=-9e4))
-        #         #Now run the inference for N of neuron simulations (1 batch). This runs the simulator function we provid with randomly selected params
-        #         #and then computes the prob dist
-        theta = torch.tensor(np.vstack(theta_full), dtype=default_dtype)
-        res = torch.tensor(np.vstack(res_full), dtype=default_dtype)
+        simulator, prior = prepare_for_sbi(simulator_pass, prior)
+        theta, res = simulate_for_sbi(simulator, prior, num_simulations=int(N*batches), simulation_batch_size=N)
         np.save(f"{tag}_theta_ds.npy", theta.numpy())
         np.save(f"{tag}_res_ds.npy", res.numpy())
 
+    #drop rows with only zeros
+    theta = theta[~(res == 0).all(1)]
+    res = res[~(res == 0).all(1)]
     # Now we need to run the inference for the posterior
-    dens_est = inference.append_simulations(theta, res, proposal=prior).train()
+    dens_est = inference.append_simulations(theta, res, proposal=prior).train(show_train_summary=True)
     posterior = inference.build_posterior(dens_est)
-    posterior.set_default_x(res[0])
+    posterior.set_default_x(res.numpy()[6])
     #try sampling the data?
     sample = posterior.sample((1000,))
     analysis.pairplot(sample)    
@@ -105,6 +100,7 @@ def generate_posterior(tag='', load_prev=False, ):
             dump(dens_est, f)
     with open(f"{tag}_prior.pkl", "wb") as f:
             dump(prior, f)
+    plt.savefig(f"{tag}_posterior.png")
     plt.show()
     
     

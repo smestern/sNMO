@@ -223,7 +223,7 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], _batch_size, _rounds, 
     backend='sbi', sbi_kwargs=dict(x_obs=x_o, prefit_posterior='ADIF_posterior_post.pkl')) #, sample_conditional={'C': model.C, 'taum': model.taum, 'EL': model.EL}
     #set the default X, seems to speed up sampling
-    opt.rounds = 5
+    opt.rounds = 150
     opt.fit(model, id=model.id)
     # get top 100 samples
      ##TODO maybe take the mode of the highest samples for each column?
