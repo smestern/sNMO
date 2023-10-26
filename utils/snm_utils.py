@@ -236,7 +236,7 @@ def membrane_resistance_subt(dataT, dataV,dataI):
     stim_data = []
     for i, sweep in enumerate(dataV):
         abs_min, resp = compute_sag(dataT[i,:], sweep, dataI[i,:])
-        ind =find_stim_changes(dataI[i, :])
+        ind = find_stim_changes(dataI[i, :])
         baseline = np.mean(sweep[:ind[0]])
         stim = dataI[i,ind[0] + 1]
         stim_data.append(stim)

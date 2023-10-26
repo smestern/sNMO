@@ -27,8 +27,5 @@ def loadABF(file_path, return_obj=False):
         return npdataX, npdataY, npdataC, abf
     else:
 
-        return npdataX, npdataY, npdataC, abf
-
-    ##Final return incase if statement fails somehow
-    return npdataX, npdataY, npdataC
+        return npdataX, npdataY, npdataC
 

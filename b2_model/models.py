@@ -57,3 +57,23 @@ adIF = dict(eqs=Equations('''
         I = in_current(t) : amp
         '''), threshold='v>VT', reset='v=VR; w+=b', refractory='refrac', method='euler', init_var=dict(v='EL'))
 
+cadEx = dict(eqs=Equations('''
+        dv/dt = ( gL*(EL-v) + gL*DeltaT*exp((v - VT)/DeltaT) + w*(Ea - v) + I ) * (1./C) : volt
+        dw/dt = ( a/(1 + exp((Va - v)/DeltaA)) - w ) / tauw : siemens
+        tauw : second
+        a : siemens
+        b : siemens
+        C : farad
+        taum : second
+        gL : siemens
+        EL : volt
+        Ea : volt
+        Va : volt
+        VT : volt
+        VR : volt
+        Vcut : volt
+        DeltaT : volt
+        DeltaA : volt
+        refrac : second
+        I = in_current(t) : amp
+        ''') , threshold='v>Vcut', reset='v=VR; w+=b', refractory='refrac', method='euler', init_var=dict(v='EL'))

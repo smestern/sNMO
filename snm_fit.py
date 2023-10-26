@@ -32,8 +32,7 @@ from b2_model.brian2_model import brian2_model
 from optimizer import snmOptimizer
 import loadNWB as lnwb
 from utils import *
-from error import zErrorMetric
-from error.errorScalers import weightedErrorMetric
+from error import zErrorMetric,weightedErrorMetric 
 warnings.filterwarnings("ignore")
 
 #to allow parallel processing
@@ -55,8 +54,25 @@ class snmFitter():
     #the class should have a run method that runs the optimizer and returns the results
 
     def __init__(self, optimizer_settings=None, model=None, file=None, optimizer=DEFAULT_Optimizer, rounds=500, batch_size=500, output_folder=None):
-        self.file = file
-        self.model = model
+
+        #the user can pass in a file, or a model, but not both
+        if file is not None and model is not None:
+            raise ValueError("You cannot pass in both a file and a model")
+        elif file is None and model is None and optimizer_settings is None:
+            #if neither is passed in, thats okay, we just hope that the user passes it in later
+            self.model = None
+            self.file = None
+        elif file is not None and optimizer_settings is not None:
+            self.model = self._load_data_and_model(file, optimizer_settings)
+            self.file = file
+        elif file is None and optimizer_settings is not None:
+            self.model =  brian2_model(model=optimizer_settings['model_choice'])
+        elif file is not None:
+            self.model = load_data_and_model(file, optimizer_settings)
+            self.file = file
+        elif model is not None:
+            self.model = model
+            self.file = file
         self.optimizer_settings = optimizer_settings
         
         self.rounds = rounds
@@ -64,10 +80,7 @@ class snmFitter():
         self.output_folder = output_folder
 
         #if the optimizer is a string, create the optimizer object from the string
-        if isinstance(optimizer, str):
-            self.optimizer = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend=optimizer)
-        elif isinstance(optimizer, functools.partial): #if the optimizer is a partial, create the optimizer object
-            self.optimizer = optimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds)
+        self._get_or_init_optimizer(optimizer, optimizer_settings)
         
 
     def run(self, kwargs=None):
@@ -80,20 +93,89 @@ class snmFitter():
         return self.run_optimizer(self.file, self.optimizer_settings, self.optimizer, self.rounds, self.batch_size)
 
     def run_optimizer(self, file, optimizer_settings, optimizer=None, rounds=None, batch_size=None):
-        _rounds= rounds #Set the global settings to the user passed in params
-        _batch_size= batch_size
-        model = load_data_and_model(file, optimizer_settings) #load the nwb and model
-        cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
-        #adjust the constraints to the found CM or TAUM
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.75, model.C*1.25]
-        optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.75, model.taum*1.25]
-        print(f"== Loaded cell {cell_id} for fitting ==")
-        return self.optimize(model, optimizer_settings, optimizer=optimizer, id=cell_id)
+        #if the user passed in a file, load the data and model
+        if file is not None and file != self.file:
+            self.model = self._load_data_and_model(file, optimizer_settings)
+        
+        #if the user passed in a optimizer, update the optimizer
+        if optimizer is not None and optimizer != self.optimizer:
+            self._get_or_init_optimizer(optimizer, optimizer_settings)
+
+        
+        return self.optimize(self.model, optimizer_settings, optimizer=optimizer)
     
     def optimize(self):
+        """ Runs the specified optimizer over the file using the given settings."""
         pass
 
+    def _load_data_and_model(self, file, optimizer_settings):
+        """ loads a NWB file from a file path. Also computes basic parameters such as capactiance, if possible, from the data
+
+        Args:
+            file (str): a string pointing to a file to be loaded
+            optimizer_settings (dict): a dict containing the optimizer settings. Specifically containing the constraints on the model varaiables
+        """
+        sweeps_to_use = optimizer_settings['sweeps_to_fit']
+        file_path = file
+        #set the stims 
+        lnwb.global_stim_names.stim_inc = optimizer_settings['stim_names_inc']
+        lnwb.global_stim_names.stim_exc = optimizer_settings['stim_names_exc']
+
+        #load the data from the file
+        dataX, dataY, dataC,obj = lnwb.loadFile(file_path, return_obj=True, old=False)
+
+        #drop down to only the sweeps we want
+        if sweeps_to_use != None:
+            #load -70, -50, 50 70
+            idx_stim = np.argmin(np.abs(dataX - 1))
+            current_out = dataC[:, idx_stim]
+            #take only the current steps we want
+            current_idx = [x in sweeps_to_use for x in current_out]
+            if np.sum(current_idx) < len(sweeps_to_use):
+                raise ValueError("The file did not have the requested sweeps")
+            else:
+                dataX, dataY, dataC = dataX[current_idx,:], dataY[current_idx,:], dataC[current_idx,:]
+            
+        #if the settings say to run qc, run qc
+        if optimizer_settings['run_qc']:
+            dataX, dataY, dataC = sweepwise_qc(dataX, dataY, dataC)
+
+
+        #detect the spike times,
+        spike_time = detect_spike_times(dataX, dataY, dataC) 
+        spiking_sweeps = np.nonzero([len(x) for x in spike_time])[0]
+        non_spiking_sweeps = np.delete(np.arange(0, dataX.shape[0]), spiking_sweeps)
+
+        #Create the model and attach the data. 
+        model = brian2_model(model=optimizer_settings['model_choice'], param_dict={'dt':compute_dt(dataX), '_run_time':2, 'id': os.path.basename(file_path)})
+        model.add_real_data(dataX, dataY, dataC, spike_time, non_spiking_sweeps, spiking_sweeps)
+
+        #if the data is a square pulse, we can precompute tau, C, and el, and use those as constraints
+        if "square" in optimizer_settings['stim_patt']:
+            #compute the tau, C, and R
+            resistance = membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
+            taum = np.nanmean([exp_decay_factor(realX[x], realY[x], realC[x], plot=True) for x in non_spiking_sweeps])
+            R = compute_R(dataX, dataY, dataC)
+            #set the constraints
+            optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [taum*0.75, tau*1.25]
+            optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [C*0.75, C*1.25]
+            optimizer_settings['constraints'][optimizer_settings['model_choice']]['R'] = [R*0.75, R*1.25]
+            optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [np.nanmean(dataY[:,0])*0.99, np.nanmean(dataY[:,0])*1.01]
+        
+
+        
+
+
+
+    def _get_or_init_optimizer(self, optimizer, optimizer_settings):
+        if self.optimizer_settings is None and optimizer_settings is None:
+            logger.debug("No optimizer settings passed in, using default settings")
+            self.optimizer = None
+        elif isinstance(optimizer, str):
+            self.optimizer = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], self.batch_size, self.rounds, backend=optimizer)
+        elif isinstance(optimizer, functools.partial): #if the optimizer is a partial, create the optimizer object
+            self.optimizer = optimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], self.batch_size, self.rounds)
+        return self.optimizer
 
 
 
@@ -174,9 +256,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     model (b2model): a brian2 model object with the real (in Vitro) data added  
     '''
     
-    global dt
-    global spiking_sweeps
-    global non_spiking_sweeps
+  
 
     sweeps_to_use = optimizer_settings['sweeps_to_fit']
     file_path = file

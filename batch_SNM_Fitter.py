@@ -16,15 +16,15 @@ import logging
 import pandas as pd
 from brian2 import *
 from joblib import Parallel, delayed
-from scipy import stats
 import json
 import snm_fit as snm_fit
 from loadNWB import *
 import utils as ut
+script_path = os.path.dirname(os.path.realpath(__file__))
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger()
 np.random.seed(46)
-ut.DEBUG = False
+ut.DEBUG = True
 
 @ut.DEBUG_WRAPPER
 def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
@@ -36,12 +36,12 @@ def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
 
     cell_id = fp.split("\\")[-1].split(".")[0]
     
-    realX, realY, realC,_ = loadFile(fp, old=False) #loads thea nwb file, and returns the data in realX, realY, realC
+    realX, realY, realC= loadFile(fp, old=False) #loads thea nwb file, and returns the data in realX, realY, realC
     
     spikes = ut.detect_spike_times(realX, realY, realC) 
     sweep_upper = ut.find_decline_fi(spikes) #find the point of likely sodium channel inactivation
     most_spikes = len(max(spikes, key=len)) #find the most spikes in a sweep
-    temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer, sweep_upper_cut=None)
+    temp_df = snm_fit.snmFitter().run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer)
     temp_df['id'] = [cell_id]
     return temp_df
     
@@ -102,7 +102,7 @@ if __name__ == "__main__": ##If the script is called from the command line this 
                         help='batch size of number of params to test in parallel per cell', required=False)
     parser.add_argument('--rounds', type=int, default=100,
                         help='number of rounds to optimize over', required=False)                        
-    parser.add_argument('--optimizerSettings', type=str, default='optimizer_settings.json',
+    parser.add_argument('--optimizerSettings', type=str, default=script_path+"/optimizer_settings.json",
                         help='additional settings for the opitmizer to use', required=False)
 
     args = parser.parse_args()

@@ -15,8 +15,13 @@ class brian2_model(object):
         self.N = 1
         self._run_time = 3
 
-        #load the choosen model 
-        self._model =  getattr(models, model)
+        #load the choosen model
+        if isinstance(model, str):
+            self._model = getattr(models, model)
+        elif isinstance(model, dict):
+            self._model = model
+        else:
+            raise ValueError("Model must be a string or a dict, not {}".format(type(model)))
         #passed params
         self.record_vars = ['v']
         if param_dict is not None:
