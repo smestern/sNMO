@@ -6,20 +6,18 @@ todo - add a command line interface
     - add a GUI interface
     - add a GUI interface with a progress bar
     - make more object oriented
-
 '''
 import argparse
 import logging
 import sys
-
-from error.errorScalers import weightedErrorMetric
-
 logging.basicConfig(stream=sys.stdout, level=logging.INFO) #trying to log brian2 errors
+logger = logging.getLogger(__name__)
 import multiprocessing
 import os
 import time
 import warnings
 from pickle import dump, load
+from functools import partial
 
 import pandas as pd
 import torch
@@ -35,7 +33,7 @@ from optimizer import snmOptimizer
 import loadNWB as lnwb
 from utils import *
 from error import zErrorMetric
-
+from error.errorScalers import weightedErrorMetric
 warnings.filterwarnings("ignore")
 
 #to allow parallel processing
@@ -44,12 +42,84 @@ prefs.codegen.runtime.cython.multiprocess_safe = False
 default_dtype = torch.float32
 
 # === Global Settings ===
-_rounds = 3
-_batch_size = 15000
-N = _batch_size
-batches = _rounds
+DEFAULT_Optimizer = partial(snmOptimizer, backend='ng')
 
 # === MAIN FUNCTION ===
+class snmFitter():
+    #WIP class that transforms the functional code below into a OOP class
+    #this class should accept or create 3 objects, a model, a optimizer, and error metric
+    #the model should be a brian2 model object, with a realC, realY, realX, spike_time, and spikeSweep, 
+    #   or if the user passes in a file, it should load the data and create the model based on optimizer_settings
+    #the optimizer should be a snmOptimizer object, or a string that can be used to create a snmOptimizer object
+    #the error metric should be a zErrorMetric object, or a function
+    #the class should have a run method that runs the optimizer and returns the results
+
+    def __init__(self, optimizer_settings=None, model=None, file=None, optimizer=DEFAULT_Optimizer, rounds=500, batch_size=500, output_folder=None):
+        self.file = file
+        self.model = model
+        self.optimizer_settings = optimizer_settings
+        
+        self.rounds = rounds
+        self.batch_size = batch_size
+        self.output_folder = output_folder
+
+        #if the optimizer is a string, create the optimizer object from the string
+        if isinstance(optimizer, str):
+            self.optimizer = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds, backend=optimizer)
+        elif isinstance(optimizer, functools.partial): #if the optimizer is a partial, create the optimizer object
+            self.optimizer = optimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], batch_size, rounds)
+        
+
+    def run(self, kwargs=None):
+        if kwargs is not None:
+            #update the locals with the kwargs if the user passed them in
+            if kwargs is not None:
+                for key, value in kwargs.items():
+                    if key in self.__dict__.keys():
+                        self.__dict__[key] = value
+        return self.run_optimizer(self.file, self.optimizer_settings, self.optimizer, self.rounds, self.batch_size)
+
+    def run_optimizer(self, file, optimizer_settings, optimizer=None, rounds=None, batch_size=None):
+        _rounds= rounds #Set the global settings to the user passed in params
+        _batch_size= batch_size
+        model = load_data_and_model(file, optimizer_settings) #load the nwb and model
+        cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
+        #adjust the constraints to the found CM or TAUM
+        optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [model.EL*1.01, model.EL*0.99]
+        optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [model.C*0.75, model.C*1.25]
+        optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [model.taum*0.75, model.taum*1.25]
+        print(f"== Loaded cell {cell_id} for fitting ==")
+        return self.optimize(model, optimizer_settings, optimizer=optimizer, id=cell_id)
+    
+    def optimize(self):
+        pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# === deprecated functional code below here ===
+
 
 def run_optimizer(file, optimizer_settings, optimizer='ng', rounds=500, batch_size=500, sweep_upper_cut=None):
     ''' Runs the optimizer for a given file, using user specfied params and _rounds
@@ -159,7 +229,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
     neg_current = np.arange(0, realX.shape[0])[neg_current]
 
     #Compute cell params
-    resistance = membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
+    resistance = 1#membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
     taum = np.nanmean([exp_decay_factor(realX[x], realY[x], realC[x], plot=True) for x in non_spiking_sweeps])
     plt.title(f"{taum*1000} ms taum")
     plt.savefig(f"output//{cell_id}_taum_fit.png")
@@ -271,7 +341,7 @@ def optimize(model, optimizer_settings, optimizer='ng', id='nan'):
     x_o = model_feature_curve(model)
     error_scaler = weightedErrorMetric(y=x_o, weights=[0.1, 1e-9, 1], splits=[[0, (len(model.spikeSweep)+len(model.subthresholdSweep))], [(len(model.spikeSweep)+len(model.subthresholdSweep)), (len(model.spikeSweep)+len(model.subthresholdSweep))*2], [(len(model.spikeSweep)+len(model.subthresholdSweep))*2, len(x_o)]])
     opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), _batch_size, _rounds, 
-    backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)#
+    backend=optimizer, nevergrad_opt=ng.optimizers.ParaPortfolio)
     min_ar = []
     print(f"== Starting Optimizer with {_rounds} _rounds ===")
     for i in np.arange(_rounds):

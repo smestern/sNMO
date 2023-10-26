@@ -24,29 +24,27 @@ import utils as ut
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger()
 np.random.seed(46)
+ut.DEBUG = False
 
+@ut.DEBUG_WRAPPER
 def fit_cell(fp, optimizer, optimizer_settings, rounds=50, batch_size=500):
     '''This is the primairy pass thru for cell fitting. It essentially takes a file path and optimizer keyword and tries to fit the cell
     _____
     takes:
     fp (str): a file path arguement pointing towards a single nwb
     optimizer (str): the string stating which optimizer to use'''
-    try:
-    #if True:
-        cell_id = fp.split("\\")[-1].split(".")[0]
-        
-        realX, realY, realC,_ = loadFile(fp, old=False) #loads thea nwb file, and returns the data in realX, realY, realC
-        
-        spikes = ut.detect_spike_times(realX, realY, realC) 
-        sweep_upper = ut.find_decline_fi(spikes) #find the point of likely sodium channel inactivation
-        most_spikes = len(max(spikes, key=len)) #find the most spikes in a sweep
-        temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer, sweep_upper_cut=None)
-        temp_df['id'] = [cell_id]
-        return temp_df
-    except Exception as e:
-        print(f"fail to fit {fp} with exception")
-        print(e.args) 
-        return pd.DataFrame()
+
+    cell_id = fp.split("\\")[-1].split(".")[0]
+    
+    realX, realY, realC,_ = loadFile(fp, old=False) #loads thea nwb file, and returns the data in realX, realY, realC
+    
+    spikes = ut.detect_spike_times(realX, realY, realC) 
+    sweep_upper = ut.find_decline_fi(spikes) #find the point of likely sodium channel inactivation
+    most_spikes = len(max(spikes, key=len)) #find the most spikes in a sweep
+    temp_df = snm_fit.run_optimizer(fp, optimizer_settings, rounds=rounds, batch_size=batch_size, optimizer=optimizer, sweep_upper_cut=None)
+    temp_df['id'] = [cell_id]
+    return temp_df
+    
 
 
 def main(args, optimizer_settings):
@@ -80,12 +78,8 @@ def main(args, optimizer_settings):
                     print("cell prev fit")
                     continue
                 else:
-                    #try:
-                        
-                        res = fit_cell(fp, args.optimizer, optimizer_settings, args.rounds, args.batch_size)
-                        full_df = full_df.append(res, ignore_index=True)
-                    #except:
-                        #continue
+                    res = fit_cell(fp, args.optimizer, optimizer_settings, args.rounds, args.batch_size)
+                    full_df = full_df.append(res, ignore_index=True)
             
             
     full_df.to_csv(f'output//full_spike_fit.csv')

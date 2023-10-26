@@ -186,34 +186,29 @@ def exp_decay_factor(dataT,dataV,dataI, time_aft=50, plot=False, sag=True):
         return 0
 
 def compute_sag(dataT,dataV,dataI, time_aft=50):
-         min_max = [np.argmin, np.argmax]
-         find = 0
-         time_aft = time_aft / 100
-         if time_aft > 1:
-                time_aft = 1   
-         diff_I = np.diff(dataI)
-         upwardinfl = np.nonzero(np.where(diff_I>0, diff_I, 0))[0][0]
-         downwardinfl = np.nonzero(np.where(diff_I<0, diff_I, 0))[0][0]
-         if upwardinfl < downwardinfl: #if its depolarizing then swap them
-            temp = downwardinfl
-            find = 1
-            downwardinfl = upwardinfl
-            upwardinfl = temp
-         dt = dataT[1] - dataT[0] #in s
-         end_index = upwardinfl - int(0.100/dt)
-         end_index2 = upwardinfl - int((upwardinfl - downwardinfl) * time_aft)
-         
-         if end_index<downwardinfl:
-             end_index = upwardinfl - 5
-         vm = np.nanmean(dataV[end_index:upwardinfl])
-         
-         min_point = downwardinfl + min_max[find](dataV[downwardinfl:end_index2])
-         test = dataT[downwardinfl]
-         test2 = dataT[end_index]
-         avg_min = np.nanmean(dataV[min_point])
-         sag_diff = avg_min - vm
-
-         return sag_diff, vm
+    min_max = [np.argmin, np.argmax]
+    find = 0
+    time_aft = time_aft / 100
+    if time_aft > 1:
+        time_aft = 1   
+    diff_I = np.diff(dataI)
+    upwardinfl = np.nonzero(np.where(diff_I>0, diff_I, 0))[0][0]
+    downwardinfl = np.nonzero(np.where(diff_I<0, diff_I, 0))[0][0]
+    if upwardinfl < downwardinfl: #if its depolarizing then swap them
+        temp = downwardinfl
+    find = 1
+    downwardinfl = upwardinfl
+    upwardinfl = temp
+    dt = dataT[1] - dataT[0] #in s
+    end_index = upwardinfl - int(0.100/dt)
+    end_index2 = upwardinfl - int((upwardinfl - downwardinfl) * time_aft)
+    if end_index<downwardinfl:
+        end_index = upwardinfl - 5
+    vm = np.nanmean(dataV[end_index:upwardinfl])
+    min_point = downwardinfl + min_max[find](dataV[downwardinfl:end_index2])
+    avg_min = np.nanmean(dataV[min_point])
+    sag_diff = avg_min - vm
+    return sag_diff, 
 
 def membrane_resistance(dataT,dataV,dataI):
     try:

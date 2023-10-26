@@ -395,29 +395,6 @@ class SBI_optimizer(snMOptimizer):
         conditions_ = np.vstack(conditions_)
         sample = np.hstack((conditions_.T, sample))
         return sample
-        #below code is for sample conditional 0.18.
-        # Evaluate the conditional density be drawing samples and smoothing with a Gaussian
-        # # kde.
-        # #_, prior = prepare_for_sbi(lambda x: x, self.proposal)
-        # self.dense_est = self.opt(self.data, self.theta).train()
-        # potential_fn, theta_transform = posterior_estimator_based_potential(
-        #     self.dense_est, prior=prior, x_o=self.x_obs
-        # )
-        # (conditioned_potential_fn, restricted_tf, restricted_prior,) = analysis.conditonal_potential(
-        #     potential_fn=potential_fn,
-        #     theta_transform=theta_transform,
-        #     prior=prior,
-        #     condition=fixed_params,
-        #     dims_to_sample=fixed_params_indicator,
-        # )
-        # mcmc_posterior = MCMCPosterior(
-        #     potential_fn=conditioned_potential_fn,
-        #     theta_transform=restricted_tf,
-        #     proposal=restricted_prior,
-        #     init_strategy='proposal',
-        #     num_workers=1
-        # )
-        # return mcmc_posterior
 
 if ax_loaded:
     class Ax_optimizer():

@@ -23,6 +23,9 @@ class brian2_model(object):
             self.__dict__.update(param_dict) #if the user passed in a param dictonary we can update the objects attributes using it.
                 # This will overwrite the default values if the user passes in for example {'Cm:' 99} the cm value above will be overwritten
 
+        #for optimization purposes, we can also figure out the optimiziable parameters without the user having to pass them in
+        self._optimiziable_params = self._get_optimiziable_params()
+
 
     def run_current_sim(self, sweepNumber=None, param_dict=None):
 
@@ -368,6 +371,19 @@ class brian2_model(object):
             if x in neuron_keys:
                 neuron_group.__dict__[x] = self.__dict__[x]
         return neuron_group
+    
+    def _get_optimiziable_params(self):
+        #to do this we need to denovo construct a neuron group
+        start_scope()
+        ngrp = NeuronGroup(1, model=self._model['eqs'],  threshold=self._model['threshold'], reset=self._model['reset'], refractory=self._model['refractory'], method=self._model['method'] )
+        variables = ngrp.get_states(read_only_variables=False)
+        optimiziable_params = {}
+        for key, val in variables.items():
+            if isinstance(val, Quantity):
+                optimiziable_params[key] = {'value': val, 'unit': val.dim}
+            else:
+                optimiziable_params[key] = {'value': val, 'unit': None}
+        return optimiziable_params
 
 
 
