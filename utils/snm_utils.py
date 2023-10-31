@@ -9,7 +9,6 @@ from scipy.optimize import curve_fit
 from brian2 import pF, pA, nS, mV, NeuronGroup, pamp, run, second, StateMonitor, ms, TimedArray, size, nan, array, reshape, \
     shape, volt, siemens, amp, farad, ohm, Gohm
 from brian2 import *
-from loadNWB import loadNWB
 try:
     ### these are some libraries for spike train assesment not needed if you are not calling spike dist
     from elephant.spike_train_dissimilarity import victor_purpura_dist, van_rossum_dist
@@ -170,7 +169,7 @@ def exp_decay_factor(dataT,dataV,dataI, time_aft=50, plot=False, sag=True):
             lowerC = np.amin(dataV[downwardinfl:end_index])
         diff = np.abs(upperC - lowerC)
         t1 = dataT[downwardinfl:end_index] - dataT[downwardinfl]
-        curve, pcov_1p = curve_fit(exp_decay_1p, t1, dataV[downwardinfl:end_index]/1000, maxfev=500000, bounds=([(upperC-0.5)/1000, -np.inf, 0], [(upperC+0.5)/1000, np.inf, np.inf]), xtol=None, verbose=1)
+        curve, pcov_1p = curve_fit(exp_decay_1p, t1, dataV[downwardinfl:end_index]/1000, maxfev=500000, bounds=([(upperC-0.5)/1000, -np.inf, 0], [(upperC+0.5)/1000, np.inf, np.inf]), xtol=None)
         tau = curve[2]
         if plot:
             plt.figure(2)
@@ -196,9 +195,12 @@ def compute_sag(dataT,dataV,dataI, time_aft=50):
     downwardinfl = np.nonzero(np.where(diff_I<0, diff_I, 0))[0][0]
     if upwardinfl < downwardinfl: #if its depolarizing then swap them
         temp = downwardinfl
+        downwardinfl = upwardinfl
+        upwardinfl = temp
+    else: 
+        pass
+    
     find = 1
-    downwardinfl = upwardinfl
-    upwardinfl = temp
     dt = dataT[1] - dataT[0] #in s
     end_index = upwardinfl - int(0.100/dt)
     end_index2 = upwardinfl - int((upwardinfl - downwardinfl) * time_aft)
@@ -208,7 +210,10 @@ def compute_sag(dataT,dataV,dataI, time_aft=50):
     min_point = downwardinfl + min_max[find](dataV[downwardinfl:end_index2])
     avg_min = np.nanmean(dataV[min_point])
     sag_diff = avg_min - vm
-    return sag_diff, 
+
+    
+
+    return sag_diff, vm
 
 def membrane_resistance(dataT,dataV,dataI):
     try:
@@ -520,21 +525,3 @@ def plot_IF(param_dict, model):
     
     legend()
 
-def model_feature_curve(model):
-    real_fi, real_isi = compute_FI_curve(model.spike_times, model._run_time) #Compute the real FI curve
-    real_fi = np.hstack((real_fi, real_isi))
-    real_rmp = compute_rmp(model.realY, model.realC)
-    real_min = []
-    real_subt = []
-    for x in  model.subthresholdSweep :
-        temp = compute_steady_hyp(model.realY[x, :].reshape(1,-1), model.realC[x, :].reshape(1,-1))
-        temp_min = compute_min_stim(model.realY[x, :], model.realX[x,:], strt=0.62, end=1.2)
-        real_subt.append(temp)
-        real_min.append(temp_min)
-    real_subt = np.array(real_subt)        
-    
-    real_min = np.hstack(real_min)
-    
-    np_o = np.hstack((real_fi, real_rmp, real_subt, real_min))
-    
-    return np_o

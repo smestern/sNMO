@@ -19,7 +19,7 @@ from sbi import analysis
 from sbi.inference import (SNPE,prepare_for_sbi)
 from sbi.inference.base import infer
 from skopt import Optimizer, plots, space
-from utils import *
+from ..utils import *
 import time
 try:
     from ax import *

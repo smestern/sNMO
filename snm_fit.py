@@ -42,37 +42,25 @@ default_dtype = torch.float32
 
 # === Global Settings ===
 DEFAULT_Optimizer = partial(snmOptimizer, backend='ng')
+ERROR_func = error_curves #should accept 2 arrays, the ground truth and the model output, and optionally object. Should return a N x 1 array of errors
+ERROR_scaler = weightedErrorMetric
 
 # === MAIN FUNCTION ===
 class snmFitter():
     #WIP class that transforms the functional code below into a OOP class
     #this class should accept or create 3 objects, a model, a optimizer, and error metric
-    #the model should be a brian2 model object, with a realC, realY, realX, spike_time, and spikeSweep, 
+    #the model should be a brian2 model object, with a dataC, dataY, dataX, spike_time, and spikeSweep, 
     #   or if the user passes in a file, it should load the data and create the model based on optimizer_settings
     #the optimizer should be a snmOptimizer object, or a string that can be used to create a snmOptimizer object
     #the error metric should be a zErrorMetric object, or a function
     #the class should have a run method that runs the optimizer and returns the results
 
-    def __init__(self, optimizer_settings=None, model=None, file=None, optimizer=DEFAULT_Optimizer, rounds=500, batch_size=500, output_folder=None):
+    def __init__(self, optimizer_settings=None, model=None, file=None, optimizer=DEFAULT_Optimizer, rounds=500, batch_size=500,
+                 error_func=ERROR_func, error_scaler=ERROR_scaler, output_folder=None):
 
-        #the user can pass in a file, or a model, but not both
-        if file is not None and model is not None:
-            raise ValueError("You cannot pass in both a file and a model")
-        elif file is None and model is None and optimizer_settings is None:
-            #if neither is passed in, thats okay, we just hope that the user passes it in later
-            self.model = None
-            self.file = None
-        elif file is not None and optimizer_settings is not None:
-            self.model = self._load_data_and_model(file, optimizer_settings)
-            self.file = file
-        elif file is None and optimizer_settings is not None:
-            self.model =  brian2_model(model=optimizer_settings['model_choice'])
-        elif file is not None:
-            self.model = load_data_and_model(file, optimizer_settings)
-            self.file = file
-        elif model is not None:
-            self.model = model
-            self.file = file
+        #if the user passed in a file, load the data and model
+        #or if the user passed in a model, use that model
+        self._get_or_init_model_and_file(file, model, optimizer_settings)
         self.optimizer_settings = optimizer_settings
         
         self.rounds = rounds
@@ -82,17 +70,19 @@ class snmFitter():
         #if the optimizer is a string, create the optimizer object from the string
         self._get_or_init_optimizer(optimizer, optimizer_settings)
         
+        #alias run as the run_optimizer function
+        self.run = self.run_optimizer
 
-    def run(self, kwargs=None):
+        #handle the 
+
+    def run_optimizer(self, file=None, optimizer_settings=None, optimizer=None, kwargs=None) -> dict:
         if kwargs is not None:
             #update the locals with the kwargs if the user passed them in
             if kwargs is not None:
                 for key, value in kwargs.items():
                     if key in self.__dict__.keys():
                         self.__dict__[key] = value
-        return self.run_optimizer(self.file, self.optimizer_settings, self.optimizer, self.rounds, self.batch_size)
-
-    def run_optimizer(self, file, optimizer_settings, optimizer=None, rounds=None, batch_size=None):
+        
         #if the user passed in a file, load the data and model
         if file is not None and file != self.file:
             self.model = self._load_data_and_model(file, optimizer_settings)
@@ -104,9 +94,56 @@ class snmFitter():
         
         return self.optimize(self.model, optimizer_settings, optimizer=optimizer)
     
-    def optimize(self):
-        """ Runs the specified optimizer over the file using the given settings."""
-        pass
+    def optimize(self, model, optimizer_settings, optimizer=None) -> dict:
+        """ Runs the specified optimizer over the file using the given settings. 
+        Performs the basic optimization loop of asking for points, running them, and telling the output
+
+        Args:
+            model (b2_model): a brian2 model object containing a model and the ground truth data to be fit to.
+            optimizer_settings (dict): a dict containg the optimizer settings. Specifically containg the constraints on the model varaiables 
+            optimizer (str, optional): the optimization backend to be used. Can be one of ['ng', 'skopt', 'ax', 'sbi'] Defaults to 'ng'.
+            id (str, optional): [description]. Defaults to 'nan'.
+
+        Returns:
+            results (dict): a dict containg the best fit parameters
+        """
+       
+        model.set_params({'N': _batch_size})
+        budget = int(_rounds * _batch_size)
+        
+        x_o = model_feature_curve(model)
+        error_scaler = weightedErrorMetric(y=x_o, weights=[0.1, 1e-9, 1], splits=[[0, (len(model.spikeSweep)+len(model.subthresholdSweep))], [(len(model.spikeSweep)+len(model.subthresholdSweep)), (len(model.spikeSweep)+len(model.subthresholdSweep))*2], [(len(model.spikeSweep)+len(model.subthresholdSweep))*2, len(x_o)]])
+        opt = snmOptimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']].copy(), _batch_size, _rounds, 
+        backend=optimizer)
+        min_ar = []
+        print(f"== Starting Optimizer with {_rounds} _rounds ===")
+        for i in np.arange(_rounds):
+            
+        
+            y = error_scaler.transform(np_o)
+
+            print(f"sim {(time.time()-t_start)/60} min end")
+            opt.tell(param_list, y) ##Tells the optimizer the param - error pairs so it can learn
+            t_end = time.time()
+            min_ar.append(np.sort(y)[:5])
+            res = opt.get_result()
+            #try:
+            plot_trace(res, model)
+                
+            plt.savefig(f"output//{id}_{i}_fit_vm.png")
+            plot_IF(res, model)
+                
+            plt.savefig(f"output//{id}_{i}_fit_IF.png")
+                #os.remove(f"output//{id}_{i-1}_fit_vm.png")
+                #os.remove(f"output//{id}_{i-1}_fit_IF.png")
+            #except:
+                # pass
+            if len(min_ar) > 5:
+                if _check_min_loss_gradient(min_ar, num_no_improvement=25, threshold=1e-5) == False:
+                    break
+            print(f"[CELL {id}] - iter {i} excuted in {(t_end-t_start)/60} min, with error {np.amin(y)} #with a min trace error {error_t[np.argmin(y)]} and FI error of {error_fi[np.argmin(y)]} and spike error of {error_isi[np.argmin(y)]}") #    
+        results = opt.get_result() #returns a result containing the param - error matches
+        return results
 
     def _load_data_and_model(self, file, optimizer_settings):
         """ loads a NWB file from a file path. Also computes basic parameters such as capactiance, if possible, from the data
@@ -150,23 +187,32 @@ class snmFitter():
         model = brian2_model(model=optimizer_settings['model_choice'], param_dict={'dt':compute_dt(dataX), '_run_time':2, 'id': os.path.basename(file_path)})
         model.add_real_data(dataX, dataY, dataC, spike_time, non_spiking_sweeps, spiking_sweeps)
 
-        #if the data is a square pulse, we can precompute tau, C, and el, and use those as constraints
+        #if the data is a square pulse, we can precompute tau, C, and el, and use those as constraints, to speed things up
         if "square" in optimizer_settings['stim_patt']:
+            logger.debug("Square pulse detected, precomputing tau, C, and EL")
             #compute the tau, C, and R
-            resistance = membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
-            taum = np.nanmean([exp_decay_factor(realX[x], realY[x], realC[x], plot=True) for x in non_spiking_sweeps])
-            R = compute_R(dataX, dataY, dataC)
-            #set the constraints
-            optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [taum*0.75, tau*1.25]
-            optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [C*0.75, C*1.25]
-            optimizer_settings['constraints'][optimizer_settings['model_choice']]['R'] = [R*0.75, R*1.25]
-            optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [np.nanmean(dataY[:,0])*0.99, np.nanmean(dataY[:,0])*1.01]
-        
+            Resist = membrane_resistance_subt(dataX[non_spiking_sweeps], dataY[non_spiking_sweeps], dataC[non_spiking_sweeps])
+            taum = np.nanmean([exp_decay_factor(dataX[x], dataY[x], dataC[x], plot=True) for x in non_spiking_sweeps])
+            Capac = (mem_cap((Resist*Gohm)/ohm, taum) * farad) / pF
+            #double check that taum or capacitance is not nan or too high
+            param_pass = True
+            if np.isnan(taum) or np.isnan(Capac):
+                param_pass = False
+            elif np.logical_and(taum <= 0.9, taum < 0.001):#taum is in seconds, so 900ms and 1ms
+                param_pass = False
+            elif np.logical_and(Capac <= 500, Capac <1):#capacitance is in pF, so 900pF and 1pF
+                param_pass = False
+            #if the params pass, set the constraints
+            if param_pass:
+                #We can constrain the C, R, and EL to be within 25% of the mean, to speed up the optimizer
+                optimizer_settings['constraints'][optimizer_settings['model_choice']]['taum'] = [taum*0.75, taum*1.25]
+                optimizer_settings['constraints'][optimizer_settings['model_choice']]['C'] = [Capac*0.75, Capac*1.25]
+                optimizer_settings['constraints'][optimizer_settings['model_choice']]['R'] = [Resist*0.75, Resist*1.25]
+                optimizer_settings['constraints'][optimizer_settings['model_choice']]['EL'] = [np.nanmean(dataY[:,0])*0.99, np.nanmean(dataY[:,0])*1.01]
+        else:
+            logger.debug("Non-square pulse detected, not precomputing tau, C, and EL")
 
-        
-
-
-
+   
     def _get_or_init_optimizer(self, optimizer, optimizer_settings):
         if self.optimizer_settings is None and optimizer_settings is None:
             logger.debug("No optimizer settings passed in, using default settings")
@@ -176,28 +222,27 @@ class snmFitter():
         elif isinstance(optimizer, functools.partial): #if the optimizer is a partial, create the optimizer object
             self.optimizer = optimizer(optimizer_settings['constraints'][optimizer_settings['model_choice']], self.batch_size, self.rounds)
         return self.optimizer
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    
+    def _get_or_init_model_and_file(self, file, model, optimizer_settings):
+        #the user can pass in a file, or a model, but not both
+        if file is not None and model is not None:
+            raise ValueError("You cannot pass in both a file and a model")
+        elif file is None and model is None and optimizer_settings is None:
+            #if neither is passed in, thats okay, we just hope that the user passes it in later
+            self.model = None
+            self.file = None
+        elif file is not None and optimizer_settings is not None: #if the user passed in a file and optimizer settings, load the data and model
+            self.model = self._load_data_and_model(file, optimizer_settings)
+            self.file = file
+        elif file is None and optimizer_settings is not None: #if the user passed in just the optimizer settings, just spawn a model
+            self.model =  brian2_model(model=optimizer_settings['model_choice'])
+        elif file is not None:
+            self.model = load_data_and_model(file, optimizer_settings)
+            self.file = file
+        elif model is not None: 
+            self.model = model
+            self.file = file
+        return self.model, self.file
 
 
 # === deprecated functional code below here ===
@@ -266,51 +311,51 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
 
     #load the data from the file
     cell_id = os.path.basename(file) #grab the cell id by cutting around the file path
-    realX, realY, realC,_ = lnwb.loadFile(file_path, old=False)
+    dataX, dataY, dataC,_ = lnwb.loadFile(file_path, old=False)
     
     #crop the data
-    index_3 = np.argmin(np.abs(realX[0,:]-2.50))
-    ind_strt = np.argmin(np.abs((realX[0,:]-0.50)))
+    index_3 = np.argmin(np.abs(dataX[0,:]-2.50))
+    ind_strt = np.argmin(np.abs((dataX[0,:]-0.50)))
 
     if sweep_upper_cut != None:
-        realX, realY, realC = realX[:,ind_strt:index_3], realY[:,ind_strt:index_3], realC[:,ind_strt:index_3]
+        dataX, dataY, dataC = dataX[:,ind_strt:index_3], dataY[:,ind_strt:index_3], dataC[:,ind_strt:index_3]
     elif sweeps_to_use != None:
         #load -70, -50, 50 70
-        idx_stim = np.argmin(np.abs(realX - 1))
-        current_out = realC[:, idx_stim]
+        idx_stim = np.argmin(np.abs(dataX - 1))
+        current_out = dataC[:, idx_stim]
         #take only the current steps we want
         current_idx = [x in sweeps_to_use for x in current_out]
         if np.sum(current_idx) < len(sweeps_to_use):
             raise ValueError("The file did not have the requested sweeps")
         else:
-            realX, realY, realC = realX[current_idx,ind_strt:index_3], realY[current_idx,ind_strt:index_3], realC[current_idx,ind_strt:index_3]
+            dataX, dataY, dataC = dataX[current_idx,ind_strt:index_3], dataY[current_idx,ind_strt:index_3], dataC[current_idx,ind_strt:index_3]
     else:   
-        realX, realY, realC = realX[:sweep_upper_cut,ind_strt:index_3], realY[:sweep_upper_cut,ind_strt:index_3], realC[:sweep_upper_cut,ind_strt:index_3]
-    realX = realX - realX[0,0]
-    realX, realY, realC = sweepwise_qc(realX, realY, realC)
-    sweeplim = np.arange(realX.shape[0])
-    dt = compute_dt(realX)
-    compute_el = compute_rmp(realY[:2,:], realC[:2,:])
+        dataX, dataY, dataC = dataX[:sweep_upper_cut,ind_strt:index_3], dataY[:sweep_upper_cut,ind_strt:index_3], dataC[:sweep_upper_cut,ind_strt:index_3]
+    dataX = dataX - dataX[0,0]
+    dataX, dataY, dataC = sweepwise_qc(dataX, dataY, dataC)
+    sweeplim = np.arange(dataX.shape[0])
+    dt = compute_dt(dataX)
+    compute_el = compute_rmp(dataY[:2,:], dataC[:2,:])
 
     #baseline the data to the first two sweeps?
-    sweepwise_el = np.array([compute_rmp(realY[x,:].reshape(1,-1), realC[x,:].reshape(1,-1)) for x in np.arange(realX.shape[0])])
+    sweepwise_el = np.array([compute_rmp(dataY[x,:].reshape(1,-1), dataC[x,:].reshape(1,-1)) for x in np.arange(dataX.shape[0])])
     sweep_offset = (sweepwise_el - compute_el).reshape(-1,1)
-    realY = realY - sweep_offset
+    dataY = dataY - sweep_offset
 
     #Compute Spike Times
-    spike_time = detect_spike_times(realX, realY, realC, sweeplim, upper=1.15) #finds geh 
+    spike_time = detect_spike_times(dataX, dataY, dataC, sweeplim, upper=1.15) #finds geh 
     spiking_sweeps = np.nonzero([len(x) for x in spike_time])[0]
     rheobase = spiking_sweeps[0]
-    non_spiking_sweeps = np.delete(np.arange(0, realX.shape[0]), spiking_sweeps)
-    thres = compute_threshold(realX, realY, realC, sweeplim)
+    non_spiking_sweeps = np.delete(np.arange(0, dataX.shape[0]), spiking_sweeps)
+    thres = compute_threshold(dataX, dataY, dataC, sweeplim)
 
     #negative current sweeps 
-    neg_current = [x<0 for x in realC[:, np.argmin(np.abs(realX-0.5))]]
-    neg_current = np.arange(0, realX.shape[0])[neg_current]
+    neg_current = [x<0 for x in dataC[:, np.argmin(np.abs(dataX-0.5))]]
+    neg_current = np.arange(0, dataX.shape[0])[neg_current]
 
     #Compute cell params
-    resistance = 1#membrane_resistance_subt(realX[neg_current], realY[neg_current], realC[neg_current])
-    taum = np.nanmean([exp_decay_factor(realX[x], realY[x], realC[x], plot=True) for x in non_spiking_sweeps])
+    resistance = 1#membrane_resistance_subt(dataX[neg_current], dataY[neg_current], dataC[neg_current])
+    taum = np.nanmean([exp_decay_factor(dataX[x], dataY[x], dataC[x], plot=True) for x in non_spiking_sweeps])
     plt.title(f"{taum*1000} ms taum")
     plt.savefig(f"output//{cell_id}_taum_fit.png")
     Cm = (mem_cap((resistance*Gohm)/ohm, taum)) * farad
@@ -319,7 +364,7 @@ def load_data_and_model(file, optimizer_settings, sweep_upper_cut=None):
 
     #Create the model and attach the data. 
     model = brian2_model(model=optimizer_settings['model_choice'], param_dict={'EL': compute_el, 'dt':dt, '_run_time':2, 'C': Cm, 'taum': taum, 'id': cell_id})
-    model.add_real_data(realX, realY, realC, spike_time, non_spiking_sweeps, spiking_sweeps)
+    model.add_real_data(dataX, dataY, dataC, spike_time, non_spiking_sweeps, spiking_sweeps)
     model.build_params_from_data()
 
 
@@ -345,19 +390,19 @@ def SNPE_OPT(model, optimizer_settings, id='nan', run_ng=True, run_ng_phase=Fals
     from sbi.inference import SNLE, SNPE
     from sbi.inference.base import infer
 
-    global realC
+    global dataC
     global dt
     global non_spiking_sweeps
     global N
     # Generate the X_o (observation) uses a combination of different params
     real_fi, real_isi = compute_FI_curve(model.spike_times, model._run_time) #Compute the real FI curve
     real_fi = np.hstack((real_fi, real_isi))
-    real_rmp = compute_rmp(model.realY, model.realC)
+    real_rmp = compute_rmp(model.dataY, model.dataC)
     real_min = []
     real_subt = []
     for x in  model.subthresholdSweep :
-        temp = compute_steady_hyp(model.realY[x, :].reshape(1,-1), model.realC[x, :].reshape(1,-1))
-        temp_min = compute_min_stim(model.realY[x, :], model.realX[x,:], strt=0.62, end=1.2)
+        temp = compute_steady_hyp(model.dataY[x, :].reshape(1,-1), model.dataC[x, :].reshape(1,-1))
+        temp_min = compute_min_stim(model.dataY[x, :], model.dataX[x,:], strt=0.62, end=1.2)
         real_subt.append(temp)
         real_min.append(temp_min)
     real_subt = np.array(real_subt)        

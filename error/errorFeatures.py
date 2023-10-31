@@ -1,7 +1,26 @@
-import numpy
+import numpy as np
 from ipfx import feature_extractor
+from ..utils import compute_FI_curve, compute_rmp, compute_steady_hyp, compute_min_stim,add_spikes_to_voltage
 
-from utils.snm_utils import add_spikes_to_voltage
+
+def model_feature_curve(model):
+    real_fi, real_isi = compute_FI_curve(model.spike_times, model._run_time) #Compute the real FI curve
+    real_fi = np.hstack((real_fi, real_isi))
+    real_rmp = compute_rmp(model.realY, model.realC)
+    real_min = []
+    real_subt = []
+    for x in  model.subthresholdSweep :
+        temp = compute_steady_hyp(model.realY[x, :].reshape(1,-1), model.realC[x, :].reshape(1,-1))
+        temp_min = compute_min_stim(model.realY[x, :], model.realX[x,:], strt=0.62, end=1.2)
+        real_subt.append(temp)
+        real_min.append(temp_min)
+    real_subt = np.array(real_subt)        
+    
+    real_min = np.hstack(real_min)
+    
+    np_o = np.hstack((real_fi, real_rmp, real_subt, real_min))
+    
+    return np_o
 
 
 class FeatureExtractor():
@@ -46,3 +65,4 @@ class FeatureExtractor():
         return features
     
     def _extract_spike_features(self, t, v, i, s, dt, start, end):
+        pass

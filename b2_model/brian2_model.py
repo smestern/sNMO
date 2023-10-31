@@ -1,12 +1,12 @@
 from itertools import filterfalse
 from re import X
-from utils import *
+from ..utils import *
 from brian2 import *
-import b2_model.models as models
+from . import models as models
 from scipy import stats
 from ipfx import feature_extractor
 from ipfx import subthresh_features as subt
-
+import ast
 
 class brian2_model(object):
     
@@ -80,7 +80,7 @@ class brian2_model(object):
         self.VT = compute_threshold(self.realX, self.realY, self.realC, self.spikeSweep)
         self.spike_times = self._detect_real_spikes()
         self._compute_real_fi()
-        #self._compute_subthreshold_features(self.realX[0], self.realY[0], self.realC[0])
+       
 
     def _detect_real_spikes(self):
         return detect_spike_times(self.realX, self.realY, self.realC)
@@ -393,3 +393,33 @@ class brian2_model(object):
 
 
 
+class genModel(object):
+    #a generic class for optimization of 'models' representing any generic python function. 
+    # Allows for the user to pass in a function and a dictionary of parameters to optimize
+    # here we will use ast to parse the function and find the optimiziable parameters
+    # we will also use the inspect module to figure out the number of arguments the function takes
+    # and the names of those arguments
+    def __init__(self, file=None, func=None, kwargs={}) -> None:
+        #if the user passes in a file, we will parse the file and find the function(s) in the file
+        #if the user passes in a function, we will use that function
+
+        if file is not None:
+            self._file = file
+            self._func = self._get_func_from_file()
+        elif func is not None:
+            raise NotImplementedError("Function optimization not yet implemented")
+        
+        else:
+            raise ValueError("Must pass in a file or a function")
+        
+        self._kwargs = kwargs
+    
+    def _get_func_from_file(self):
+        #this function will parse the file and find the function(s) in the file
+        #it will return a list of functions
+        with open(self._file, 'r') as f:
+            file_contents = f.read()
+        self._tree = ast.parse(file_contents)
+        self._func_list = [node for node in self._tree.body if isinstance(node, ast.FunctionDef)]
+        logger.debug("Found {} functions in file {}".format(len(func_list), self._file))
+        return func_list
