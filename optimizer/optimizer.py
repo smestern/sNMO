@@ -19,6 +19,8 @@ from sbi import analysis
 from sbi.inference import (SNPE,prepare_for_sbi)
 from sbi.inference.base import infer
 from skopt import Optimizer, plots, space
+from joblib import Parallel, delayed
+
 from ..utils import *
 import time
 try:
@@ -37,22 +39,23 @@ DEwithHam = ng.optimizers.Chaining([ng.optimizers.ScrHammersleySearch, ng.optimi
 
 
 
-def snmOptimizer(params_dict, batch_size, rounds, backend='ng', nevergrad_kwargs={}, skopt_kwargs={}, nevergrad_opt=DEwithHam, sbi_kwargs={}):
+def snmOptimizer(params_dict, batch_size, rounds, parallel_jobs=1, backend='ng', nevergrad_kwargs={}, skopt_kwargs={}, nevergrad_opt=DEwithHam, sbi_kwargs={}):
     ''' A backend agnostic optimizer, which should allow easier switching between skopt and nevergrad. internal optimizaion code handles returning the 
     params in a way that b2 models want  
     Takes:
     '''
     if backend == 'ng':
-            return NG_optimizer(params_dict.copy(), batch_size, rounds, nevergrad_opt, nevergrad_kwargs=nevergrad_kwargs)  
+            return NG_optimizer(params_dict.copy(), batch_size, rounds, nevergrad_opt, nevergrad_kwargs=nevergrad_kwargs, parallel_jobs=parallel_jobs)  
     elif backend == 'skopt':
-            return SKopt_optimizer(params_dict.copy(), batch_size, rounds)
+            return SKopt_optimizer(params_dict.copy(), batch_size, rounds, parallel_jobs=parallel_jobs)
     elif backend == 'sbi':
-            return SBI_optimizer(params_dict.copy(), batch_size, rounds, **sbi_kwargs)
+            return SBI_optimizer(params_dict.copy(), batch_size, rounds, parallel_jobs=parallel_jobs **sbi_kwargs)
     elif backend == 'ax':
-            return Ax_optimizer(params_dict.copy(), batch_size, rounds)
+            return Ax_optimizer(params_dict.copy(), batch_size, rounds, parallel_jobs=parallel_jobs)
             
 class snMOptimizer():
     def __init__():
+        raise "Not Implemented; this is an abstract class"
         pass
     def ask():
         pass
@@ -60,6 +63,22 @@ class snMOptimizer():
         pass
     def get_result():
         pass
+    def optimize(self, func, error_func=None, kwargs={}):
+
+        #this is a wrapper function to allow the user to pass in a function to optimize, and an error function to use if the user wants to use a different error function
+        #than the one defined in the model. If no error function is passed, the func most return a single value which will be used as the error
+        #or args that can be passed to the error function
+        def _inner_round(param_dict):
+            if error_func is not None:
+                return error_func(func(param_dict))
+            else:
+                return func(param_dict)
+        for i in np.arange(self.rounds): 
+            param_dict = self.ask()
+            errors = Parallel(n_jobs=self.parallel_jobs, backend='multiprocessing')(delayed(_inner_round)(param_dict) for i in np.arange(self.batch_size))
+            self.tell(param_dict, errors)
+        return self.get_result()
+        
     def attach_units(self, param_dict):
         if isinstance(param_dict, list):
             new_list = []
@@ -74,7 +93,7 @@ class snMOptimizer():
         return param_dict
 
 class NG_optimizer(snMOptimizer):
-    def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}, batch_trials=True, include_units=True):
+    def __init__(self, params_dict, batch_size, rounds, optimizer, nevergrad_kwargs={}, batch_trials=True, include_units=True, parallel_jobs=1):
         #Build Params
         self._units = [globals()[x] for x in params_dict.pop('units')]
         self._params = OrderedDict(params_dict)
@@ -125,7 +144,7 @@ class NG_optimizer(snMOptimizer):
         return best_val
         
 class SKopt_optimizer(snMOptimizer):
-    def __init__(self, params, param_labels, batch_size, rounds, optimizer='RF', skopt_kwargs={}):
+    def __init__(self, params, param_labels, batch_size, rounds, optimizer='RF', parallel_jobs=1, skopt_kwargs={}):
         #Build Params
         self._params = params
         self._param_labels = param_labels
@@ -162,7 +181,7 @@ class SKopt_optimizer(snMOptimizer):
 class SBI_optimizer(snMOptimizer):
     """ 
     """
-    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=1000, prefit_posterior=None, sample_conditional=None):
+    def __init__(self, params_dict, batch_size, rounds, x_obs=None, n_initial_sim=1000, prefit_posterior=None, sample_conditional=None, parallel_jobs=1):
         """ An SBI 'optimizer' which allows simple generation of a posterior, or multi-round inference to focus on a particular sample.
 
         Args:
@@ -418,7 +437,7 @@ if ax_loaded:
                 def run(self, trial):
                     return {"name": str(trial.index), "snm_error": self.parent_obj._error}
 
-        def __init__(self, params_dict, batch_size, rounds, device_gp='cuda', num_sobol=3):
+        def __init__(self, params_dict, batch_size, rounds, device_gp='cuda', num_sobol=3,parallel_jobs=1):
             
             self._units = [globals()[x] for x in params_dict.pop('units')]
             self._params = OrderedDict(params_dict)

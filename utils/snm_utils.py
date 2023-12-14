@@ -59,16 +59,6 @@ def detect_spike_times(dataX, dataY, dataC, sweeps=None, dvdt=20, swidth=10, spe
     return spike_list
 
 
-def spikeIndices(V):
-    # smooth the first difference of V; peaks should be clear and smooth
-    dV = np.diff(V)
-    dVsm, _, _, _ = smoothn(dV)
-    
-    # define spikes at indices where smoothed dV exceeds twice the standard deviation
-    sigma = np.std(dVsm)
-    spkIdxs, _ = find_peaks(dVsm, height=2*sigma)
-    
-    return spkIdxs
 
 
 def compute_threshold(dataX, dataY, dataC, sweeps, dvdt=20):

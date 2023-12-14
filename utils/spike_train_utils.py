@@ -3,7 +3,16 @@ import matplotlib.pyplot as plt
 from scipy import stats
 from brian2 import *
 from scipy import spatial
-import ot
+try:
+    import networkx as nx
+except:
+    print("networkx not installed, some functions will not work")
+
+try: 
+    from elephant.statistics import cv2
+except:
+    print("elephant not installed, some functions will not work")
+
 #% MISC utils %#
 #Tools for loading or transforming spike trains
 
@@ -18,26 +27,42 @@ def build_n_train(isi, n=2):
 def build_kde(isi_corr):
     isi_corr = np.log10(isi_corr)[:-1]
     unit_kde = stats.gaussian_kde(isi_corr.T)
-
     return unit_kde
 
-def build_isi_from_spike_train(M, low_cut=0., high_cut=None):
+
+def isi_from_spike_train(spike_train, low_cut=0., high_cut=None):
+    #in this case spike train is a list of spike times assumed to already be in seconds
+    #if spike_train is 1d we assume it is a single spike train
+    #if spike_train is 2d we assume it is a list of spike trains
+    if spike_train.ndim == 1:
+        spike_train = spike_train.reshape(1,-1)
+    isi = []
+    for x in spike_train:
+        spikes = x
+        spikes_filtered = spikes[spikes>low_cut]
+        if high_cut is not None:
+            spikes_filtered = spikes_filtered[spikes_filtered<high_cut]
+        isi.append(np.diff(spikes_filtered))
+
+def build_isi_from_spike_train(M, low_cut=0., high_cut=None, indiv=False):
     spike_trains = M.spike_trains() 
     ISI_ = []
     N = len(spike_trains.keys())
     if high_cut is None:
-        for u in np.arange(N).astype(np.int):
+        for u in np.arange(N).astype(np.int32):
             spikes = spike_trains[u] / second
             spikes_filtered = spikes[spikes>low_cut]
-            ISI_ = np.hstack((ISI_, np.diff(spikes_filtered)))
+            ISI_.append( np.diff(spikes_filtered)*1000)
     else:
-        for u in np.arange(N).astype(np.int):
+        for u in np.arange(N).astype(np.int32):
             spikes = spike_trains[u] / second
             spikes_filtered = spikes[np.logical_and(spikes>low_cut, spikes<high_cut)]
-            ISI_ = np.hstack((ISI_, np.diff(spikes_filtered)))
-    ISI_ *= 1000
-    if ISI_.shape[0] < 1:
-        ISI_ = np.array([3000,3000])
+            ISI_.append(np.diff(spikes_filtered)*1000)
+    
+    if indiv==False:
+        ISI_ = np.hstack(ISI_)
+        if ISI_.shape[0] < 1:
+            ISI_ = np.array([3000,3000])
     return ISI_
 
 def build_isi_from_spike_train_sep(M):
@@ -51,6 +76,23 @@ def build_isi_from_spike_train_sep(M):
     if ISI_.shape[0] < 1:
         ISI_ = np.array([3000,3000])
     return ISI_
+
+def unweave_spikes(times, ids):
+    """Unweave spikes in a given time array with corresponding ids"""
+    ids_ = np.unique(ids)
+    times_ = []
+    for x in ids_:
+        times_.append(times[ids==x])
+    return times_, ids_
+
+def weave_spikes(times, ids=None):
+    """Weave spikes in a given time array with corresponding ids"""
+    times_ = np.hstack(times)
+    if ids is None:
+        ids_ = np.hstack([np.full(len(x), i) for i, x in enumerate(times)])
+    else:
+        ids_ = np.hstack(ids)
+    return times_, ids_
 
 def intra_burst_hist(isi, low_cut=None):
     train_ = build_n_train(isi)
@@ -91,25 +133,31 @@ def binary_spike_train(TIME, bin_size=5, end=None, binary=True):
     return hist
 
 
-def binned_hz_pop(isi, time, popsize=500, binsize=500):
+def binned_fr_pop(spike_times, end_time, popsize=500, binsize=0.5):
+    """ Returns the binned firing rate of a population of neurons. Spike times can either be a list of spike times or a list of spike trains.
+    takes:
+    spike_times: list of spike times or list of spike trains
+    end_time: the end time of the simulation (in seconds)
+    popsize: the number of neurons in the population
+    binsize: the size of the bins (in seconds)
+    """
     binned_isi_hz = []
-    bins = np.arange(0, time, binsize)
-    bins_right = np.arange(binsize, time + binsize, binsize)
+    bins = np.arange(0, end_time, binsize)
+    bins_right = np.arange(binsize,end_time + binsize, binsize)
     for x, x_r in zip(bins, bins_right):
         temp_isi_array = []
         for u in np.arange(popsize):
-            temp_isi = isi[u] / second
-            temp_isi *= 1000
+            temp_isi = spike_times[u] / second
             filtered_isi = temp_isi[np.logical_and(temp_isi>=x, temp_isi<x_r)]
-            temp_isi_array.append((len(filtered_isi)/(binsize/1000)))
+            temp_isi_array.append((len(filtered_isi)/(binsize)))
         binned_isi_hz.append(np.nanmean(temp_isi_array))
     return np.hstack(binned_isi_hz), bins
 
-def equal_ar_size_from_list(isi_list, val=np.nan):
+def equal_ar_size_from_list(isi_list):
     lsize = len(max(isi_list, key=len))
     new_list = []
     for x in isi_list:
-        new_list.append(np.hstack((x, np.full((lsize-len(x)), val))))
+        new_list.append(np.hstack((x, np.full((lsize-len(x)), np.nan))))
     return np.vstack(new_list)
 
 def save_spike_train(isi, n=500, rand_num=30, filename='spike_trains.csv'):
@@ -127,27 +175,134 @@ def save_spike_train_col(isi, filename='spike_trains_col.csv'):
     isi_out = np.vstack((train, time))
     np.savetxt(f"{filename}", isi_out.T, fmt='%.18f', delimiter=',')
 
-    
-    
 
-def filter_bursts(isi, sil=300):
+def filter_bursts(isi, sil=25, burst=6, intraburst=25, label_sil=True, binary=False):
+    """ Filters the bursts, and 'tonic' spiking of the the given isi array. labelling the spike train where appropriate. Default values are
+    from the Ichiyama et al. 2021 paper. Advanced method allows for an exponeniatal growth of the intraburst time, but this is not
+    implemented yet.
+    takes:
+        isi: the isi array in ms
+        sil: the silence time (ms)
+        burst: the burst time (ms)
+        intraburst: the intraburst time (ms)
+        label_sil: whether to label the silence as part of the burst or not. the silence will not be included in the bursts list either way
+        binary: whether to return a binary labeled isi array or not
+    returns:
+        labeled_isi: the isi array with 0 for non-burst, 1 for burst, 2 for intraburst
+        bursts: a list of bursts
+        non_burst: a list of non-burst spikes
+    """
     n_train = build_n_train(isi, 2)
-    silences_ind = np.where(np.logical_and(n_train[:,0]>=300, n_train[:,1]<6))[0]
-    labeled_isi = np.zeros(isi.shape[0])
-    bursts = []
-    for x in silences_ind:
-        temp_isi = isi[int(x)+1:]
-        end_x = x
-        for i in temp_isi:
-            if i >= 10:
+    silences_ind = np.where(np.logical_and(n_train[:,0]>=sil, n_train[:,1]<=burst))[0] #intial burst should have a silence of sil ms, and a burst of burst ms
+    labeled_isi = np.zeros(isi.shape[0]) #0 is no burst, 2 is intraburst, 1 is burst, 3 is silence
+    bursts = [] #now we need to find the 'end' of the burst and label the intraburst
+    for x in silences_ind: #for each silence
+        temp_isi = isi[int(x)+1:] #get the isi after the silence
+        end_x = x+1 #start the start of the burst
+        for i in temp_isi: #for each isi after the silence
+            if i >= intraburst: #if the isi is greater than the intraburst time
                 break
             else:
-                end_x += 1
-        labeled_isi[int(x)+1:end_x]=2
-        bursts.append(isi[int(x):end_x])
-    labeled_isi[silences_ind+1] = 1
-    non_burst = isi[labeled_isi==0]
+                end_x += 1 #otherwise increment the end of the burst
+        labeled_isi[int(x)+1:end_x]=2 #label the intraburst
+        bursts.append(isi[int(x):end_x]) #append the burst to the list
+    labeled_isi[silences_ind+1] = 1 #label the burst
+    if label_sil:
+        labeled_isi[silences_ind] = 3 #label the silence, as part of the burst
+    non_burst = isi[labeled_isi==0] #get the non burst
+    if binary:
+        labeled_isi = np.clip(labeled_isi, 0, 1)
     return labeled_isi,bursts, non_burst
+
+def filter_tonic(isi, sil=25, burst=6, intraburst=50):
+    """ Filters out bursts and intrabursts, leaving only 'tonic' spikes. This is the opposite of filter_bursts, and 
+    is a bit of a hack. The criteria is that the isi before and after the spike is greater than the intraburst time.
+    takes:
+        isi: the isi array in ms
+        sil: the silence time (ms)
+        burst: the burst time (ms)
+        intraburst: the intraburst time (ms)
+    returns:
+        labeled_isi: the isi array with 0 for non-burst, 1 for burst, 2 for intraburst
+        bursts: a list of bursts
+        non_burst: a list of non-burst spikes
+
+    """
+
+    #first we actually need to find the bursts
+    labeled_bursts, _, _ = filter_bursts(isi, label_sil=False, binary=True)
+
+
+    n_train = build_n_train(isi, 2)
+    silences_ind = np.where(np.logical_and(n_train[:,0]>=sil, n_train[:,1]<=burst))[0] #intial burst should have a silence of sil ms, and a burst of burst ms
+    probable_tonic = np.where(np.logical_and(n_train[:,0]>=intraburst, n_train[:,1]>=intraburst))[0]
+    
+    labeled_isi = np.zeros(isi.shape[0]) #0 is no burst, 2 is intraburst, 1 is burst, 3 is silence
+    labeled_isi[probable_tonic] = 1
+
+
+    labeled_isi[silences_ind] = 0 # silences that pre
+    #also need to remove the bursts
+    labeled_isi[labeled_bursts==1] = 0
+    tonic_spikes = isi[labeled_isi==1]
+    non_tonic = isi[labeled_isi==0]
+    return labeled_isi, tonic_spikes, non_tonic
+
+def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 0.6, burst_state_thres = 0.05,
+                bins=None, binwidth=3000, rolling_mean=True, binary=True, rm_kwargs={'window_n': 3, 'padding': np.nanmean}):
+    """
+    Computes the states of the ISI array, using the filter_bursts and filter_tonic functions. Returns the "states" in the context of the Ichiyama
+    et al 2021. and Mestern et al. 2023 (in prep) papers. The states are: tonic, burst, intraburst, and unclassified. The states are computed using the
+    filter_bursts and filter_tonic functions. The states are then binned using the bin_signal function. The bins are by default 3000 ms, but can be
+    changed. The binning is done using a rolling mean, but this can be changed.
+    takes:
+        isi: the isi array in ms (1D array of [n_spikes])
+        sil: the silence time (ms)
+        burst: the burst time (ms)
+        intraburst: the intraburst time (ms)
+        tonic_state_thres: the threshold for the tonic state
+        burst_state_thres: the threshold for the burst state
+        bins: the bins to bin the signal into
+        binwidth: the width of the bins
+        rolling_mean: whether to use a rolling mean or not
+        binary: whether to return a binary labeled isi array or not
+        rm_kwargs: kwargs for the rolling mean function
+    returns:
+        binned_states: the binned labels (1D array of [n_bins])
+        binned_burst: the binned burst signal (1D array of [n_bins])
+        binned_tonic: the binned tonic signal (1D array of [n_bins])
+
+    """
+    if bins is None:
+        bins = np.arange(0, np.max(isi), binwidth)
+
+    #filter the bursts and tonic spikes
+    labelb, bursts, non_bursts = filter_bursts(isi, burst=burst, sil=sil, intraburst=intraburst, binary=True)
+    labelt, tonic, non_tonic = filter_tonic(isi, sil=sil, intraburst=intraburst,)
+    _, binned_burst = bin_signal(np.cumsum(isi), labelb, bins=bins)
+    _, binned_tonic = bin_signal(np.cumsum(isi), labelt, bins=bins)
+
+    #compute the rolling means
+    if rolling_mean:
+        rolling_bins, binned_burst = rolling_window(bins, binned_burst, **rm_kwargs)
+        binned_burst = np.nanmean(binned_burst, axis=1)
+        rolling_bins, binned_tonic = rolling_window(bins, binned_tonic, **rm_kwargs)
+        binned_tonic = np.nanmean(binned_tonic, axis=1)
+    
+    #compute the mean of the states
+    #classify the state as either burst or tonic
+    state = np.zeros(binned_burst.shape)
+    tonic_states = np.where(np.logical_and(binned_burst < burst_state_thres, binned_tonic > tonic_state_thres))[0]
+    burst_states = np.where(np.logical_and(binned_burst > burst_state_thres, binned_tonic < tonic_state_thres))[0]
+    state[tonic_states] = 1
+    state[burst_states] = 2
+    state = np.array(state, dtype=int)
+
+    return state, binned_burst, binned_tonic
+    
+
+
+
 
 
 def spikes_per_burst(isi):
@@ -160,13 +315,93 @@ def spikes_per_burst(isi):
     return lens, hist, bins
 
 
+def rolling_window(X, Y, window_n, padding=np.nanmean,):
+    """
+    Rolling window for 1D data.
+    """
+    X = np.asarray(X)
+    Y = np.asarray(Y)
+
+    isi_corr = Y
+    for p in np.arange(1, window_n):
+         temp = np.hstack((Y, np.full(p, np.nan)))[p:]
+         isi_corr = np.vstack((isi_corr, temp))
+    
+    #if the padding is a function, apply it to the data
+    if callable(padding):
+        padding = padding(isi_corr)
+    #if the padding is a number, fill with that number
+    Y_ = np.nan_to_num(isi_corr, nan=padding)
+    return X[:-1], Y_.T
+
+
+def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
+    """
+    Bin signal.
+    """
+    if bins is None:
+        bins = np.arange(np.min(X), np.max(X), 0.1)
+    else:
+        bins = bins
+
+    if padding is not None:
+        #pad y with padding function if 
+        if callable(padding):
+            pad_val = padding(Y)
+        else:
+            pad_val = padding
+        Y = np.hstack((np.full(bins.shape, pad_val), Y, np.full(bins.shape, pad_val)))
+        X = np.hstack((np.full(bins.shape, bins[0]-(1e-12)), X, np.full(bins.shape, bins[-1])))
+
+    Y_ = np.zeros(len(bins))
+    for i in np.arange(len(bins)-1):
+        Y_[i] = bin_func(Y[(X > bins[i]) & (X <= bins[i+1])])
+    # fill in the last bi
+    #Y_[-1] = bin_func(Y[X > bins[-1]])
+    return bins, np.nan_to_num(Y_)
+
+
+def statistic_spikes(spikes, stat_fun=np.mean, window=10):
+    cv2_ = []
+    for unit in np.arange(len(spikes)):
+        isi = np.diff(spikes[unit]/ms)
+        isi_rolling_x, isi_rolling_y = rolling_window(spikes[unit]/second, isi, window, 0)
+        cv2_temp = np.apply_along_axis(stat_fun, 1, isi_rolling_y)
+        cv2_.append(bin_signal(isi_rolling_x, cv2_temp, bins=np.arange(5, 800.5, 1))[1])
+    bins, _ = bin_signal(isi_rolling_x, cv2_temp, bins=np.arange(5, 800.5, 1))
+    
+    cv2_ = np.vstack(cv2_)
+    return bins, cv2_
+
+
+def build_networkx_graph(EI_Conn, IE_Conn, N=1000, I_strt_idx=None):
+    """Builds a networkx graph from the EI and IE connections
+    Takes:
+    EI_conn: a list of tuples of the form (E, I)
+    IE_conn: a list of tuples of the form (I, E)
+    I_st_idx: The reference index for the I neurons
+    """
+    if I_strt_idx is None:
+        I_strt_idx = np.amax(EI_Conn[:,0])
+
+    G = nx.DiGraph()
+    G.add_nodes_from(np.arange(N))
+
+    EI_adjusted = np.column_stack((EI_Conn[:, 0],EI_Conn[:, 1] + I_strt_idx))
+    IE_adjusted = np.column_stack((IE_Conn[:, 0] + I_strt_idx,IE_Conn[:, 1]))
+    full_connection_array = np.vstack((EI_adjusted, IE_adjusted))
+    G.add_edges_from(full_connection_array)
+    return G
+
+
+
 #% Plotting Functions %#
 # Functions to plot isi trains in various manners
 
-def plot_xy(isiarray, lwl_bnd=0, up_bnd=4, fignum=2, color='k'):
+def plot_xy(isiarray, lwl_bnd=0, up_bnd=4, fignum=2, color='k', alpha=0.05):
     plt.figure(fignum, figsize=(10,10))
     if isiarray.shape[0] > 0:
-        plt.scatter(isiarray[:,0],isiarray[:,1], marker='o', alpha=0.05, color=color)
+        plt.scatter(isiarray[:,0],isiarray[:,1], marker='o', alpha=alpha, color=color)
     plt.ylim( (pow(10,lwl_bnd), pow(10,up_bnd)) )
     plt.xlim( (pow(10,lwl_bnd), pow(10,up_bnd)) )
     plt.yscale('log')
@@ -198,14 +433,17 @@ def plot_patterns(isi, rand_num, n=500, figsize=(25,5), colour=True, random=True
     if random:
         units_index = np.random.randint(0,n, rand_num)
     else:
-        units_index = np.arange(0, rand_num)
+        if n>1:
+            units_index = np.arange(0, rand_num)
+        else:
+            units_index = [rand_num]
     for x in units_index:
         u_isi = isi[x] / second
         if len(u_isi) > 0:
             time =  u_isi
-            u_isi = 1/(np.diff(u_isi))
+            u_isi = (np.diff(u_isi))*1000
             color = ['red', 'blue', 'green', 'purple', 'orange']
-            plt.ylim( (pow(10,-1), pow(10,3)) )
+            plt.ylim( (1, pow(10,3.5)))
             if colour:
                 plt.scatter(time, np.hstack((0,u_isi)), alpha=0.5)
             else:
@@ -213,18 +451,17 @@ def plot_patterns(isi, rand_num, n=500, figsize=(25,5), colour=True, random=True
             plt.yscale('log')
             plt.title(f'Unit {x}')
 
-def plot_inst_freq(ISI, figsize=(25,5), colour=None):
+
+            
+def plot_inst_freq(spike_train, figsize=(25,5), colour=None):
     plt.figure(7,  figsize=figsize )
     plt.clf()
-    time =  np.cumsum(ISI)
-    freq_ = 1/ISI
-    print(time.shape)
-    print(freq_)
-    if colour is not None:
-        plt.scatter(np.hstack((0,time))[:-1], freq_, alpha=0.5, c=colour)
-    else:
-        plt.scatter(np.hstack((0,time))[:-1], freq_, alpha=0.5, c='k')
-    plt.yscale('log')   
+    ISI = np.diff(spike_train)
+    if colour is None:
+        colour = 'k'
+        
+    plt.scatter(spike_train[:-1], ISI, alpha=0.5, c=colour)
+    plt.yscale('log')  
     
 def plot_switching_units(isi, switch, num, burst_thres=0.2, tonic_thres=0.1, n=500, figsize=(25,5), colour=True):
     units_index = np.arange(n)
@@ -257,216 +494,10 @@ def plot_switching_units(isi, switch, num, burst_thres=0.2, tonic_thres=0.1, n=5
         print("not enough units passing the threshold")
     return len(good_units)
             
+
+
 #% Distance functions %#
 #Various Functions (and internal functions) to measure distances between spike trains
 #mostly focused on time-indepedent distances
 
-def kde_dist(kde1, kde2):
-    dist = kde1[0].integrate_kde(kde2[0])
-    norm2 = kde2[0].integrate_kde(kde2[0])
-    norm1 = kde1[0].integrate_kde(kde1[0])
-    dist = 1/(dist/ (norm1+norm2))
-    return dist
-
-def pdist_kde(list_kde):
-    ar_kde = np.vstack(list_kde)
-    cd_mat = spatial.distance.pdist(ar_kde, kde_dist)
-    return cd_mat
-
-def isi_kde_dist(isi1, isi2):
-    #turn to 2d train
-    isi_corr1, isi_corr2 = build_n_train(isi1), build_n_train(isi2)
-    #build kdes
-    kde1, kde2 = build_kde(isi_corr1), build_kde(isi_corr2)
-
-    dist = kde_dist([kde1], [kde2])
-
-    return dist
-
-def ks_isi(isi1, isi2):
-    dist = stats.ks_2samp(isi1, isi2)[0]
-    return dist
-
-def intra_burst_dist(isi1, isi2, low_cut=10, plot=False):
-    intra_burst1, pre_burst1 = intra_burst_hist(isi1, low_cut=low_cut)
-    intra_burst2, pre_burst2 = intra_burst_hist(isi2, low_cut=low_cut)
-    bins = np.linspace(0,4)
-    hisi1 = np.histogram(np.log10(pre_burst1), bins)[0].astype(np.float64)
-    hisi2 = np.histogram(np.log10(pre_burst2), bins)[0].astype(np.float64)
-    if hisi1.sum() < 1e-5:
-        hisi1 += 0.5
-    if hisi2.sum() < 1e-5:
-        hisi2 += 0.5
-    hisi1 /= hisi1.sum()
-    hisi2 /= hisi2.sum()
-    dist = stats.wasserstein_distance(np.arange(hisi1.shape[0]), np.arange(hisi2.shape[0]), hisi1, hisi2)
-    
-    if plot:
-        plt.figure(565)
-        plt.clf()
-        bins = np.linspace(0,4)
-        plt.hist(np.log10(pre_burst1), bins, alpha=0.25, density=True)
-        plt.hist(np.log10(pre_burst2), bins, alpha=0.25, density=True)
-        
-    return dist
-
-def tonic_dist(isi1, isi2, plot=False):
-    intra_burst1, pre_burst1 = tonic_hist(isi1)
-    intra_burst2, pre_burst2 = tonic_hist(isi2)
-    bins = np.linspace(0,4)
-    hisi1 = np.histogram(np.log10(pre_burst1), bins)[0].astype(np.float64)
-    hisi2 = np.histogram(np.log10(pre_burst2), bins)[0].astype(np.float64)
-    if hisi1.sum() < 1e-5:
-        hisi1 += 0.5
-    if hisi2.sum() < 1e-5:
-        hisi2 += 0.5
-    hisi1 /= hisi1.sum()
-    hisi2 /= hisi2.sum()
-    dist = stats.wasserstein_distance(np.arange(hisi1.shape[0]), np.arange(hisi2.shape[0]), hisi1, hisi2)
-    
-    if plot:
-        plt.figure(565)
-        plt.clf()
-        bins = np.linspace(0,4)
-        plt.hist(np.log10(pre_burst1), bins, alpha=0.25, density=True)
-        plt.hist(np.log10(pre_burst2), bins, alpha=0.25, density=True)
-        
-    return dist
-
-def enforce_no_burst(isi, threshold, print_index=False):
-    burst_count = len(isi[isi<=8])
-    overallsize = len(isi)
-    burst_index = burst_count/overallsize
-    if print_index:
-        print(burst_index)
-    if burst_index > threshold:
-        return burst_index * 1000
-    else:
-        return burst_index
-
-def enforce_burst(isi, threshold, print_index=False):
-    burst_count = len(isi[isi<=8])
-    overallsize = len(isi)
-    burst_index = burst_count/overallsize
-    if print_index:
-        print(burst_index)
-    if burst_index < threshold:
-        return (1/(burst_index + 1e-4)) * 1000
-    else:
-        return (1/(burst_index + 1e-4))
-
-def compute_burst_index(isi):
-    burst_count = len(isi[isi<=8])
-    overallsize = len(isi)
-    burst_index = burst_count/overallsize
-    return burst_index
-    
-def emd_isi(isi1,isi2):
-    """Compute the EMD from the raw ISIs
-
-    Args:
-        isi1 (bool): _description_
-        isi2 (bool): _description_
-
-    Returns:
-        _type_: _description_
-    """
-    bins = np.logspace(0,4, num=20)
-    hisi1 = np.histogram(isi1, bins, density=False)[0].astype(np.float64)
-    hisi2 = np.histogram(isi2, bins, density=False)[0].astype(np.float64)
-    hisi1 /= hisi1.sum()
-    hisi2 /= hisi2.sum()
-    
-    if np.all(hisi1==0):
-        hisi1 += 1e-6
-    if np.all(hisi2==0):
-        hisi2 += 1e-6
-    
-    dist = stats.wasserstein_distance(np.arange(hisi1.shape[0]), np.arange(hisi1.shape[0]), hisi1, hisi2)
-
-    return dist
-
-def compute_emd_1d(y, yhat):
-    """Compute emd from precomputed histograms
-
-    Args:
-        y (_type_): _description_
-        yhat (_type_): _description_
-
-    Raises:
-        ValueError: _description_
-
-    Returns:
-        _type_: _description_
-    """
-    #create a linspace of the length of the y vector
-    x_a = np.linspace(0, len(y), len(y))
-    x_b = np.linspace(0, len(yhat), len(yhat))
-    if len(y) != len(yhat):
-        raise ValueError("y and yhat must be the same length")
-
-    #if y or yhat is all zeros add a small offset to avoid division by zero
-    if np.sum(y) < 1e-9:
-        y = y + 0.001
-    if np.sum(yhat) == 0:
-        yhat = yhat + 0.001
-    y = y/np.sum(y)
-    yhat = yhat/np.sum(yhat)
-
-
-    #compute the emd
-    dist = ot.emd2_1d(x_a, x_b, y, yhat)
-    return dist
-
-def compute_sweepwise_isi_hist(spike_times, time, bins=np.logspace(0, 3, 100)):
-    isi_hist = []
-    for r in spike_times:
-        if len(r) > 0:
-            isi_hist.append(np.diff(r)*1000)
-    return np.histogram(np.hstack(isi_hist), bins=bins)[0]
-
-def sliced_wasserstein(X, Y, num_proj):
-    '''Takes:
-        X: 2d (or nd) histogram normalized to sum to one
-        Y: 2d (or nd) histogram normalized to sum to one
-        num_proj: Number of random projections to compute the mean over
-        ---
-        returns:
-        mean_emd_dist'''
-     #% Implementation of the (non-generalized) sliced wasserstein (EMD) for 2d distributions as described here: https://arxiv.org/abs/1902.00434 %#
-    # X and Y should be a 2d histogram 
-    # Code adapted from stackoverflow user: Dougal - https://stats.stackexchange.com/questions/404775/calculate-earth-movers-distance-for-two-grayscale-images
-    dim = X.shape[1]
-    ests = []
-    for x in range(num_proj):
-        # sample uniformly from the unit sphere
-        dir = np.random.rand(dim)
-        dir /= np.linalg.norm(dir)
-
-        # project the data
-        X_proj = X @ dir
-        Y_proj = Y @ dir
-
-        # compute 1d wasserstein
-        ests.append(stats.wasserstein_distance(np.arange(dim), np.arange(dim), X_proj, Y_proj))
-    return np.mean(ests)
-
-def isi_swasserstein_2d(isi1, isi2, bin=28, log=True):
-    
-    xbins = np.linspace(0,4,bin+1)
-    ybins = np.linspace(0,4,bin+1)
-    isi1, isi2 = np.log10(isi1), np.log10(isi2)
-    isi_corr1, isi_corr2 = build_n_train(isi1), build_n_train(isi2)
-    hist1, _, _ = np.histogram2d(isi_corr1[:,0], isi_corr1[:,1], bins=(xbins, ybins))
-    hist2, _, _ = np.histogram2d(isi_corr2[:,0], isi_corr2[:,1], bins=(xbins, ybins))
-    #print(hist1.max())
-    #print(hist2.max())
-    
-    if np.all(hist1==0):
-        hist1 += 0.5
-    if np.all(hist2==0):
-        hist2 += 0.5
-    hist1 /= hist1.sum()
-    hist2 /= hist2.sum()
-    dist = sliced_wasserstein(hist1, hist2, 500)
-    return dist
+#MOVED TO SNMO

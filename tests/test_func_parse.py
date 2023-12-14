@@ -4,4 +4,4 @@ import logging
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 #test loading a file
-model = optModel(file='C:\\Users\\SMest\\Dropbox\\PVN_MODELLING_WORK\\CADEX_MODEL\\CADEX_SPATIAL copy.py')
+model = genModel(file='C:\\Users\\SMest\\Dropbox\\PVN_MODELLING_WORK\\CADEX_MODEL\\CADEX_SPATIAL copy.py')

@@ -1,8 +1,6 @@
-from utils import *
+from ..utils import *
 from brian2 import *
-from b2_model.brian2_model import brian2_model
-from joblib import Parallel, delayed
-from joblib import wrap_non_picklable_objects
+
 
 
 class zErrorMetric():

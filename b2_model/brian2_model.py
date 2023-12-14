@@ -405,21 +405,43 @@ class genModel(object):
 
         if file is not None:
             self._file = file
-            self._func = self._get_func_from_file()
-        elif func is not None:
-            raise NotImplementedError("Function optimization not yet implemented")
-        
+            self._get_funcs_from_file()
         else:
-            raise ValueError("Must pass in a file or a function")
+            raise ValueError("Must pass in a file")
+        
+        if isinstance(func, str):
+            self._func = func
         
         self._kwargs = kwargs
     
-    def _get_func_from_file(self):
+    def _get_funcs_from_file(self):
         #this function will parse the file and find the function(s) in the file
         #it will return a list of functions
-        with open(self._file, 'r') as f:
+        with open(self._file, 'r') as f: #parse the file as a string
             file_contents = f.read()
-        self._tree = ast.parse(file_contents)
+        self._tree = ast.parse(file_contents) #then parse with ast
+
+
         self._func_list = [node for node in self._tree.body if isinstance(node, ast.FunctionDef)]
-        logger.debug("Found {} functions in file {}".format(len(func_list), self._file))
-        return func_list
+        logger.debug("Found {} functions in file {}".format(len(self._func_list), self._file))
+
+        self.funcs = {func.name: {'func':func} for func in self._func_list}
+        for func in self._func_list:
+            self.funcs[func.name].update(self._get_func_attrs(func))
+        
+    def _get_func_attrs(self, func):
+        #this function will take in a function and return a dictionary of attributes, including the number of arguments, the names of the arguments, and the return types
+        #we will use the ast module to parse the function and find the number of arguments and the names of the arguments
+        #ast will also allow us to find the return type of the function
+        #we will return a dictionary of attributes
+
+        #get the number of arguments
+        num_args = len(func.args.args)
+        #get the names of the arguments
+        arg_names = [arg.arg for arg in func.args.args]
+        #get the return type by walking through the body of the function and finding the return statement
+        for node in ast.walk(func):
+            if isinstance(node, ast.Return):
+                return_type = node.value
+        #return the attributes
+        return {'num_args': num_args, 'arg_names': arg_names, 'return_type': return_type}
