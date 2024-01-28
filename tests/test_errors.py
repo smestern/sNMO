@@ -3,10 +3,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 import logging
 import sys
+from joblib import dump, load
+import os
+from brian2.units import second
+import time
 #log debug to std out
 logger = logging.getLogger()
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
+#get current directory
+dir_path = os.path.dirname(os.path.realpath(__file__))
 
 def test_emd_pdist_spk():
      
@@ -55,6 +61,27 @@ def test_emd_pdist_spk():
     plt.savefig('emd_matrix.png')
     assert emd > 0
 
+    
+
+def test_emd_pdist_spk_with_kwargs():
+    #emd_pdist_spk(spike_trains, nD=1, temporal=False, bin=1, **kwargs)
+    #Test case 7: 2d sliced spikes from file.
+    spike_trains = load(dir_path + '/demo_spikes_N.joblib')
+    #convert to a list of numpy arrays
+    spike_trains = [np.array(st/second) for st in spike_trains.values()][:50]
+    emd_matrix = emd_pdist_spk(spike_trains, nD=2, temporal=False, hist=False, norm=True)
+    assert np.any(emd_matrix[~np.eye(emd_matrix.shape[0],dtype=bool)] > 0)
+    #the two matrix should correlate
+    #time consuming?
+    st_time = time.time()
+    emd_matrix2 = emd_pdist_spk(spike_trains, nD=2, temporal=False, hist=True, norm=True)
+    logger.info('Elapsed time: %s', (time.time() - st_time)/60.0)
+    assert np.corrcoef(emd_matrix.flatten(), emd_matrix2.flatten())[0,1] > 0.9
+
+    
+
+
 
 if __name__ == "__main__":
-    test_emd_pdist_spk()
+    #test_emd_pdist_spk()
+    test_emd_pdist_spk_with_kwargs()

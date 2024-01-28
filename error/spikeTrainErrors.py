@@ -9,11 +9,14 @@ from functools import partial
 import logging
 import sys
 from joblib import Parallel, delayed
+from joblib import Memory as joblib_memory
 logging.getLogger('matplotlib.font_manager').disabled = True
 logging.getLogger('matplotlib.colorbar').disabled = True
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+#create a memory object to cache the results of the distance functions
+joblib_mem = joblib_memory(location='.', verbose=0)
 
 
 #% Distance functions %#
@@ -59,7 +62,7 @@ def emd_pdist_isi_hist(isi_hists, nD=1, temporal=False, **kwargs):
                 cdmat[i,j] = emd_isi_hist(st1, st2)
     return cdmat
 
-def emd_spk_isi_dist(spike_train1, spike_train2, nD=1, temporal=False, kwargs={} ):
+def emd_spk_isi_dist(spike_train1, spike_train2, nD=1, temporal=False, empty_dist=1e6, kwargs={} ):
     """ This is the earth movers distance between two spike trains, 
     this function takes the two spike trains and returns the emd between their isi distributions.
     Takes:
@@ -74,22 +77,33 @@ def emd_spk_isi_dist(spike_train1, spike_train2, nD=1, temporal=False, kwargs={}
             errorFunc = partial(isi_wasserstein_dd, n=nD, **kwargs)
     else:
         raise NotImplementedError("nD not implemented")
-    
+     
     isi1 = np.diff(spike_train1)*1000
     isi2 = np.diff(spike_train2)*1000
+
+    #we need to check if the isi trains are empty, if they are, we need to return a large distance
+    if isi1.shape[0] < nD or isi2.shape[0] < nD:
+        if isinstance(empty_dist, float):
+            return empty_dist
+        elif isinstance(empty_dist, str):
+            if empty_dist == 'inf':
+                return np.inf
+            elif empty_dist == 'nan':
+                return np.nan
+            else:
+                raise ValueError("empty_dist must be 'inf', 'nan', or an float")
+
     dist = errorFunc(isi1=isi1, isi2=isi2)
     return dist
 
-def isi_hist(isi1):
-    bins = np.logspace(0,4)
+def isi_hist(isi1, bins=np.logspace(0,4)):
     hisi1 = np.histogram(isi1, bins, density=False)[0].astype(np.float64)
     hisi1 /= hisi1.sum()
     if np.all(hisi1==0):
         hisi1 += 1e-6
     return hisi1
 
-def emd_isi(isi1,isi2):
-    bins = np.logspace(0,4)
+def emd_isi(isi1,isi2, bins=np.logspace(0,4)):
     hisi1 = np.histogram(isi1, bins, density=False)[0].astype(np.float64)
     hisi2 = np.histogram(isi2, bins, density=False)[0].astype(np.float64)
     hisi1 /= hisi1.sum()
@@ -102,10 +116,7 @@ def emd_isi(isi1,isi2):
         hisi2 += 1e-6
     
     hisi1 = np.nan_to_num(hisi1, nan=1e-6)
-
-
     dist = stats.wasserstein_distance(np.arange(hisi1.shape[0]), np.arange(hisi1.shape[0]), hisi1, hisi2)
-
     return dist
 
 def emd_isi_hist(isihist1, isihist2):
@@ -148,7 +159,7 @@ def isi_swasserstein_2d(isi1, isi2, bin=28, log=True, plot=False, savefig_name='
     return dist
 
 
-def isi_wasserstein_dd(isi1, isi2, n=2, bin=28, log=True, norm=False, hist=True):
+def isi_wasserstein_dd(isi1, isi2, n=2, bins=28, log=True, norm=False, hist=True):
     """ Wasserstein distance between two spike trains. This function takes the two isi trains and returns the emd between their nD joint ISI distributions.
     Takes:
         isi1: isi train 1 (in ms)
@@ -161,10 +172,18 @@ def isi_wasserstein_dd(isi1, isi2, n=2, bin=28, log=True, norm=False, hist=True)
     returns:
         dist: the wasserstein distance between the two spike trains
     """
-    _bins = np.linspace(0,4,bin+1)
-    if log:
+    if isinstance(bins, int):
+        _bins = np.linspace(0,4,bins+1)
+    elif isinstance(bins, list) or isinstance(bins, np.ndarray):
+        _bins = bins
+    else:
+        raise ValueError("bins must be an int or a list or array of bin edges")
+    
+    if log: #if the user asks for log, we log transform the isi
         isi1, isi2 = np.log10(isi1+1), np.log10(isi2+1)
-    isi_corr1, isi_corr2 = build_n_train(isi1, n=n), build_n_train(isi2, n=n)
+
+    isi_corr1, isi_corr2 = build_n_train(isi1, n=n), build_n_train(isi2, n=n) #build the nD isi trains
+
     if hist:
         bins = [_bins for i in range(isi_corr1.shape[1])]
         hist1, _= np.histogramdd(isi_corr1, bins=bins)
@@ -180,9 +199,7 @@ def isi_wasserstein_dd(isi1, isi2, n=2, bin=28, log=True, norm=False, hist=True)
         #on a nD grid, unfortunately ot.dist only works for 2d, so we need to flatten the distributions
         #and then reshape them back to the original shape
         #we also need to calc the distance matrix between the bins
-        
-        coords = flatten_coords([x[:-1] for x in bins])
-        m_dist = ot.dist(coords,metric='euclidean')
+        m_dist = ot_dist_from_bins(out_bins)
         if norm:
             m_dist /= m_dist.sum()
 
@@ -238,7 +255,7 @@ def temporal_isi_swasserstein_dd(spk1, spk2, isi1, isi2, n=2, tbin=100, bin=5, l
         #and then reshape them back to the original shape
         #we also need to calc the distance matrix between the bins
         
-        coords = flatten_coords([x[:-1] for x in bins])
+        coords = flatten_coords((x[:-1] for x in bins))
         m_dist = ot.dist(coords, coords)
         m_dist /= m_dist.sum()
         dist = ot.lp.emd2(hist1.flatten(), hist2.flatten(), m_dist)
@@ -295,12 +312,22 @@ def sliced_wasserstein(X, Y, num_proj=500, bins=None):
         ests.append(stats.wasserstein_distance(bins, bins, X_proj, Y_proj))
     return np.mean(ests)
 
+
+@joblib_mem.cache
 def flatten_coords(bins):
     #bins will be a list of bin edges, with possibly different bin sizes and array lengths. we need to generate a list of all coords
     grid = np.meshgrid(*bins)
     coords = np.vstack([x.flatten() for x in grid]).T
     return coords
 
+@joblib_mem.cache
+def ot_dist_from_bins(bins):
+    #essentially a wrapper for the ot.dist function, just so we can cache the results
+    #bins will be a list of bin edges, with possibly different bin sizes and array lengths. we need to generate a list of all coords
+    bins = tuple(tuple(x[:-1]) for x in bins)
+    coords = flatten_coords(bins)
+    m_dist = ot.dist(coords,metric='euclidean')
+    return m_dist
 
 
 #% Other Distance Functions %#
