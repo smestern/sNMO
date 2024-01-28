@@ -43,6 +43,7 @@ def isi_from_spike_train(spike_train, low_cut=0., high_cut=None):
         if high_cut is not None:
             spikes_filtered = spikes_filtered[spikes_filtered<high_cut]
         isi.append(np.diff(spikes_filtered))
+    
 
 def build_isi_from_spike_train(M, low_cut=0., high_cut=None, indiv=False):
     spike_trains = M.spike_trains() 
@@ -94,17 +95,84 @@ def weave_spikes(times, ids=None):
         ids_ = np.hstack(ids)
     return times_, ids_
 
-def intra_burst_hist(isi, low_cut=None):
-    train_ = build_n_train(isi)
-    less_ = train_[:,1]<=6
-    bins = np.logspace(0,4)
-    pre_burst = train_[less_, 0]
-    if low_cut is not None:
-        pre_burst = pre_burst[pre_burst>=low_cut]
-    
-    intra_burst = np.histogram(pre_burst, bins)[0]
-    intra_burst = intra_burst / intra_burst.sum()
-    return intra_burst, pre_burst
+
+## ICHIYAMA ET AL. 2022 summary functions
+
+def inter_burst_hist(isi,bins=np.logspace(0,5), low_cut=None):
+    """ Computes the histogram of the interburst intervals, and returns the raw interburst intervals
+    takes:
+        isi: the isi array in ms
+        low_cut: the low cut off for the interburst intervals
+        bins: the bins to use for the histogram
+    returns:
+        inter_burst: the histogram of the interburst intervals
+        burst_times: the raw interburst intervals
+    """
+
+    labeled_isi, bursts, interburst = filter_bursts(isi, label_sil=True) #get the bursts
+    burst_times = np.cumsum(isi)[np.where(labeled_isi == 3)[0]] #get the burst times
+    if low_cut is not None: #legacy code, not sure if this is needed, ideally should be removed
+        burst_isis = isi[np.where(labeled_isi == 3)[0]]
+        burst_times = burst_times[burst_isis>low_cut]
+
+    burst_times = burst_times[1:] - burst_times[:-1] #get the interburst intervals
+    inter_burst = np.histogram(burst_times, bins)[0] #compute the histogram
+    inter_burst = inter_burst / inter_burst.sum() #normalize the histogram
+    return inter_burst, burst_times
+
+
+def inter_burst_mean(isi, low_cut=10):
+    inter_burst, pre_burst = inter_burst_hist(isi, low_cut=low_cut)
+    mean = np.nanmean(pre_burst)
+    median = np.nanmedian(pre_burst)
+    return mean, median
+
+def preceeding_sil_per_event_len(isi, event_len_bins=np.arange(0, 6), silence=3):
+    """
+    Computes the preceeding silence for each event length. This is the time between bursts based on how many spikes are in the burst.
+    takes:
+        isi: the isi array in ms
+        event_len_bins: the bins to use for the event length
+    returns:
+        event_len_burst_times: the preceeding silence for each event length (list of arrays)
+        event_len_uni: the unique event lengths
+    """
+    labeled_isi, bursts, interburst = filter_bursts(isi, sil=silence, label_sil=True)
+    #measure the time between bursts, this is the time between 3's in the labeled isi
+    burst_times = isi[np.where(labeled_isi == 3)[0]]/1000 #this is the silences before the burst
+    assert len(burst_times) == len(bursts) #make sure we have the same number of bursts as we do silences
+    #binarize the event length
+    event_length = [len(burst)-1 for burst in bursts] #since our bins are 0-5, we need to subtract 1 from the burst length
+    event_length = np.digitize(event_length, event_len_bins, right=True)
+    #bin the burst times based on the event length
+    event_len_burst_times = []
+    for x in event_len_bins:
+        if x != event_len_bins[-1]: #open interval final bin
+            event_len_burst_times.append(burst_times[event_length==x])
+        else:
+            event_len_burst_times.append(burst_times[event_length>=x])
+    return event_len_burst_times, event_len_bins
+
+def prob_burst_per_isi(isi, bins=np.logspace(0,5), min_isi=3):
+    """
+    Computes the probability of a burst occuring after each isi. This is the probability of a burst occuring after each isi.
+    takes:
+        isi: the isi array in ms
+        bins: the bins to use for the isi
+        min_isi: the minimum isi to use for the probability
+    returns:
+        results: the probability of a burst occuring after each isi
+    """
+    results = np.zeros(len(bins))
+    labeled_isi, bursts, interburst = filter_bursts(isi, sil=min_isi, label_sil=False) # here we want to be unfiltered, so we set the threshold to min_isi
+    #now we need to bin the isi's and count the number of bursts that occur after each isi
+    digitize = np.digitize(isi, bins) #here we digitize the isi in
+    for bin_idx in np.unique(digitize):
+        idxs = np.where(digitize == bin_idx)[0]+1
+        idxs = idxs[idxs < len(labeled_isi)]
+        num_bursts = np.sum(labeled_isi[idxs] == 1)
+        results[bin_idx-1] = num_bursts / len(idxs)
+    return results
 
 def tonic_hist(isi):
     train_ = build_n_train(isi)
@@ -114,12 +182,6 @@ def tonic_hist(isi):
     intra_burst = np.histogram(pre_burst, bins)[0]
     intra_burst = intra_burst / intra_burst.sum()
     return intra_burst, pre_burst
-
-def intra_burst_mean(isi, low_cut=10):
-    intra_burst, pre_burst = intra_burst_hist(isi, low_cut=low_cut)
-    mean = np.nanmean(pre_burst)
-    median = np.nanmedian(pre_burst)
-    return mean, median
 
 def binary_spike_train(TIME, bin_size=5, end=None, binary=True):
     '''Converts Time array into binary spike train
@@ -131,6 +193,21 @@ def binary_spike_train(TIME, bin_size=5, end=None, binary=True):
     if binary:
         hist[hist>1] = 1
     return hist
+
+def binned_fr(spike_times, end_time, binsize=0.5, bins=None):
+
+    if bins is None:
+        bins = np.arange(0, end_time, binsize)
+    if bins is not None:
+        binsize = bins[1] - bins[0]
+    
+    bins_right = np.arange(binsize,end_time + binsize, binsize)
+    binned_isi_hz = []  
+    for x, x_r in zip(bins, bins_right):
+        temp_isi = spike_times / second
+        filtered_isi = temp_isi[np.logical_and(temp_isi>=x, temp_isi<x_r)]
+        binned_isi_hz.append((len(filtered_isi)/(binsize)))
+    return np.hstack(binned_isi_hz), bins
 
 
 def binned_fr_pop(spike_times, end_time, popsize=500, binsize=0.5):
@@ -176,7 +253,7 @@ def save_spike_train_col(isi, filename='spike_trains_col.csv'):
     np.savetxt(f"{filename}", isi_out.T, fmt='%.18f', delimiter=',')
 
 
-def filter_bursts(isi, sil=25, burst=6, intraburst=25, label_sil=True, binary=False):
+def filter_bursts(isi, sil=25, burst=6, intraburst=25, label_sil=False, binary=False, only_initial=False):
     """ Filters the bursts, and 'tonic' spiking of the the given isi array. labelling the spike train where appropriate. Default values are
     from the Ichiyama et al. 2021 paper. Advanced method allows for an exponeniatal growth of the intraburst time, but this is not
     implemented yet.
@@ -194,7 +271,7 @@ def filter_bursts(isi, sil=25, burst=6, intraburst=25, label_sil=True, binary=Fa
     """
     n_train = build_n_train(isi, 2)
     silences_ind = np.where(np.logical_and(n_train[:,0]>=sil, n_train[:,1]<=burst))[0] #intial burst should have a silence of sil ms, and a burst of burst ms
-    labeled_isi = np.zeros(isi.shape[0]) #0 is no burst, 2 is intraburst, 1 is burst, 3 is silence
+    labeled_isi = np.zeros(isi.shape[0]) #0 is no burst, 2 is intraburst, 1 is burst
     bursts = [] #now we need to find the 'end' of the burst and label the intraburst
     for x in silences_ind: #for each silence
         temp_isi = isi[int(x)+1:] #get the isi after the silence
@@ -207,12 +284,17 @@ def filter_bursts(isi, sil=25, burst=6, intraburst=25, label_sil=True, binary=Fa
         labeled_isi[int(x)+1:end_x]=2 #label the intraburst
         bursts.append(isi[int(x):end_x]) #append the burst to the list
     labeled_isi[silences_ind+1] = 1 #label the burst
+    #if we want to label the silence as part of the burst
     if label_sil:
         labeled_isi[silences_ind] = 3 #label the silence, as part of the burst
     non_burst = isi[labeled_isi==0] #get the non burst
-    if binary:
+    #if 
+    if binary and not only_initial:
         labeled_isi = np.clip(labeled_isi, 0, 1)
-    return labeled_isi,bursts, non_burst
+    elif binary and only_initial:
+        labeled_isi[labeled_isi==2] = 0
+        labeled_isi[labeled_isi==3] = 0
+    return labeled_isi, bursts, non_burst
 
 def filter_tonic(isi, sil=25, burst=6, intraburst=50):
     """ Filters out bursts and intrabursts, leaving only 'tonic' spikes. This is the opposite of filter_bursts, and 
@@ -248,7 +330,7 @@ def filter_tonic(isi, sil=25, burst=6, intraburst=50):
     non_tonic = isi[labeled_isi==0]
     return labeled_isi, tonic_spikes, non_tonic
 
-def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 0.6, burst_state_thres = 0.05,
+def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 2, burst_state_thres = 0.05,
                 bins=None, binwidth=3000, rolling_mean=True, binary=True, rm_kwargs={'window_n': 3, 'padding': np.nanmean}):
     """
     Computes the states of the ISI array, using the filter_bursts and filter_tonic functions. Returns the "states" in the context of the Ichiyama
@@ -262,8 +344,8 @@ def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 0.6,
         intraburst: the intraburst time (ms)
         tonic_state_thres: the threshold for the tonic state
         burst_state_thres: the threshold for the burst state
-        bins: the bins to bin the signal into
-        binwidth: the width of the bins
+        bins: the bins to bin the signal into (1D array of [n_bins]) in ms
+        binwidth: the width of the bins in (ms)
         rolling_mean: whether to use a rolling mean or not
         binary: whether to return a binary labeled isi array or not
         rm_kwargs: kwargs for the rolling mean function
@@ -275,12 +357,19 @@ def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 0.6,
     """
     if bins is None:
         bins = np.arange(0, np.max(isi), binwidth)
+    if bins is not None:
+        bins = bins
+        binwidth    = bins[1] - bins[0]
 
     #filter the bursts and tonic spikes
-    labelb, bursts, non_bursts = filter_bursts(isi, burst=burst, sil=sil, intraburst=intraburst, binary=True)
+    labelb, bursts, non_bursts = filter_bursts(isi, burst=burst, sil=sil, intraburst=intraburst, binary=True, only_initial=True)
     labelt, tonic, non_tonic = filter_tonic(isi, sil=sil, intraburst=intraburst,)
-    _, binned_burst = bin_signal(np.cumsum(isi), labelb, bins=bins)
-    _, binned_tonic = bin_signal(np.cumsum(isi), labelt, bins=bins)
+    _, binned_burst = bin_signal(np.cumsum(isi), labelb, bins=bins, bin_func=np.sum)
+    _, binned_tonic = bin_signal(np.cumsum(isi), labelt, bins=bins, bin_func=np.sum)
+
+    #transform into a rate
+    binned_burst = binned_burst / (binwidth /1000) #convert to rate
+    binned_tonic = binned_tonic / (binwidth /1000) #convert to rate
 
     #compute the rolling means
     if rolling_mean:
@@ -292,21 +381,23 @@ def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 0.6,
     #compute the mean of the states
     #classify the state as either burst or tonic
     state = np.zeros(binned_burst.shape)
-    tonic_states = np.where(np.logical_and(binned_burst < burst_state_thres, binned_tonic > tonic_state_thres))[0]
-    burst_states = np.where(np.logical_and(binned_burst > burst_state_thres, binned_tonic < tonic_state_thres))[0]
+    tonic_states = np.where(np.logical_and(binned_burst <= burst_state_thres, binned_tonic >= tonic_state_thres))[0]
+    burst_states = np.where(np.logical_and(binned_burst >= burst_state_thres, binned_tonic <= tonic_state_thres))[0]
+    #transition states are not used in the paper, but are included here for completeness
+    transition_states = np.where(np.logical_and(binned_burst >= burst_state_thres, binned_tonic >= tonic_state_thres))[0]
+    #silence_states = np.where(np.logical_and(binned_burst <= burst_state_thres, binned_tonic < tonic_state_thres))[0] commented out as this is not used in the paper
+    #also this is basically the same as 0
+    state[transition_states] = 2
     state[tonic_states] = 1
-    state[burst_states] = 2
+    state[burst_states] = 3
+
     state = np.array(state, dtype=int)
 
     return state, binned_burst, binned_tonic
     
 
-
-
-
-
 def spikes_per_burst(isi):
-    labels, burst, non_burst = filter_bursts(ISI_)
+    labels, burst, non_burst = filter_bursts(isi)
     lens = []
     for x in burst:
         lens.append(len(x)+1)
@@ -344,7 +435,7 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
     else:
         bins = bins
 
-    if padding is not None:
+    if padding is not None and bin_func is np.nanmean:
         #pad y with padding function if 
         if callable(padding):
             pad_val = padding(Y)
@@ -356,7 +447,7 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
     Y_ = np.zeros(len(bins))
     for i in np.arange(len(bins)-1):
         Y_[i] = bin_func(Y[(X > bins[i]) & (X <= bins[i+1])])
-    # fill in the last bi
+    #fill the last bin
     #Y_[-1] = bin_func(Y[X > bins[-1]])
     return bins, np.nan_to_num(Y_)
 
@@ -418,7 +509,7 @@ def plot_isi_hist(ISI, fignum=99):
     title("Network isi Dist")
     
 def plot_intra_burst(isi, fignum=100, low_cut=10):
-    intra_burst, pre_burst = intra_burst_hist(isi, low_cut=low_cut)
+    intra_burst, pre_burst = inter_burst_hist(isi, low_cut=low_cut)
     log_bins = np.logspace(0,4)
     plt.figure(fignum)
     plt.clf()
@@ -427,16 +518,16 @@ def plot_intra_burst(isi, fignum=100, low_cut=10):
     title("Pre Burst Interval")
     return intra_burst
 
-def plot_patterns(isi, rand_num, n=500, figsize=(25,5), colour=True, random=True):
+def plot_patterns(isi, unit_idx=1, n=500, rand_num=500, figsize=(25,5), colour=True, random=True):
     plt.figure(7,  figsize=figsize )
     plt.clf()
     if random:
         units_index = np.random.randint(0,n, rand_num)
     else:
         if n>1:
-            units_index = np.arange(0, rand_num)
+            units_index = np.arange(0, unit_idx)
         else:
-            units_index = [rand_num]
+            units_index = [unit_idx]
     for x in units_index:
         u_isi = isi[x] / second
         if len(u_isi) > 0:
