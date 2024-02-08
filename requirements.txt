@@ -15,5 +15,4 @@ quantities==0.15.0
 sbi==0.21.0
 scikit_optimize==0.9.0
 scipy==1.11.1
-sNMO.egg==info
 torch==2.1.0
