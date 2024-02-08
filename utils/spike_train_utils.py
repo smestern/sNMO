@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import stats
 from brian2 import *
-from scipy import spatial
 try:
     import networkx as nx
 except:
@@ -10,53 +9,106 @@ except:
 
 try: 
     from elephant.statistics import cv2
+    from neo import SpikeTrain
 except:
     print("elephant not installed, some functions will not work")
+    SpikeTrain = np.ScalarType
 
 #% MISC utils %#
 #Tools for loading or transforming spike trains
 
-def build_n_train(isi, n=2):
+def cast_backend_spk(spike_trains, check_each=False):
+    """Checks the backend of the spike trains, and transforms them into a list of numpy arrays, should be used for all functions.
+    removes brian2 units and brian2 backends
+    takes:
+        spike_trains: the spike trains to check. Can be a list of spike trains, a list of lists of spike trains, a dict of spike trains, a brian2 spike monitor, or a neo spike train
+        check_each: whether to check each spike train individually, or assume they are all the same
+    returns:
+        spike_trains: a list of spike trains"""
+    #should transform individual spike trains into a list of spike trains
+    if isinstance(spike_trains, list) or isinstance(spike_trains, np.ndarray):
+        #check the shape/len
+        if len(spike_trains) < 1: #if the list is empty, return it but check for units
+            if isinstance(spike_trains, Quantity):
+                spike_trains = spike_trains / second
+            else:
+                spike_trains = np.array(spike_trains)
+        elif isinstance(spike_trains[0], list) or isinstance(spike_trains[0], np.ndarray):
+            #check if the spike trains are in brian2 format e.g. have units
+            #this may be the bottom of the recursion, so check the shape/len
+            if isinstance(spike_trains[0], Quantity):
+                spike_trains = [x / second for x in spike_trains] # probably a single spike train, so just remove the units
+                #make into an array
+                spike_trains = np.array(spike_trains)
+            elif isscalar(spike_trains[0]):
+                spike_trains = np.array(spike_trains) #do nothing if it is a scalar, likely a list of spike times
+            elif len(spike_trains[0]) <= 1:
+                spike_trains = [np.array(x / second) for x in spike_trains]
+            else:
+                spike_trains = [cast_backend_spk(x) for x in spike_trains]   #recursively call the function
+    elif isinstance(spike_trains, SpikeMonitor): #check if the spike trains are in brian2 format
+        spike_trains = spike_trains.spike_trains()
+        #this is now a dict of spike trains, we need to transform it into a list of spike trains
+        spike_trains = [spike_trains[x]/second for x in spike_trains.keys()] #also remove the b2 untis
+    #check if the spike trains are in neo format
+    elif isinstance(spike_trains, SpikeTrain):
+        spike_trains = [spike_trains]
+    elif isinstance(spike_trains, dict):
+        #check if the spike trains are in brian2 format e.g. have units
+        if isinstance(spike_trains[list(spike_trains.keys())[0]][0], Quantity):
+            spike_trains = [ np.array(v / second)for k, v in spike_trains.items()]
+        else:
+            spike_trains = [ np.array(v) for k, v in spike_trains.items()]
+    else:
+        raise Exception("Spike trains not in a recognized format")
+    return spike_trains
+    
+def build_n_train(isi, n=2, padding=np.nan, truncate=True):
+    """Builds a n-dimensional isi array from a 1D isi array. For use in the swasserstein distance functions, and the joint-ISI plots
+    takes:
+        isi: the isi array in ms
+        n: the number of dimensions to build
+        padding: the value to pad the array with
+    returns:
+        isi_corr: the n-dimensional isi array"""
     isi_corr = isi
+
+    if np.isscalar(padding):
+        pass
+    elif callable(padding):
+        padding = padding(isi_corr)
+    else:
+        raise Exception("Padding must be a number or a function")
+
     for p in np.arange(1,n):
          temp = np.hstack((isi, np.full(p, np.nan)))[p:]
          isi_corr = np.vstack((isi_corr, temp))
-    
-    return isi_corr.T[:-p, :]
+    isi_corr_out = np.nan_to_num(isi_corr, nan=padding)
 
-def build_kde(isi_corr):
-    isi_corr = np.log10(isi_corr)[:-1]
-    unit_kde = stats.gaussian_kde(isi_corr.T)
-    return unit_kde
+    if truncate:
+        isi_corr_out = isi_corr_out.T[:-p, :]
+    return isi_corr_out
 
-
-def isi_from_spike_train(spike_train, low_cut=0., high_cut=None):
-    #in this case spike train is a list of spike times assumed to already be in seconds
-    #if spike_train is 1d we assume it is a single spike train
-    #if spike_train is 2d we assume it is a list of spike trains
-    if spike_train.ndim == 1:
-        spike_train = spike_train.reshape(1,-1)
-    isi = []
-    for x in spike_train:
-        spikes = x
-        spikes_filtered = spikes[spikes>low_cut]
-        if high_cut is not None:
-            spikes_filtered = spikes_filtered[spikes_filtered<high_cut]
-        isi.append(np.diff(spikes_filtered))
-    
-
-def build_isi_from_spike_train(M, low_cut=0., high_cut=None, indiv=False):
-    spike_trains = M.spike_trains() 
+def build_isi_from_spike_train(spike_trains, low_cut=0., high_cut=None, indiv=True):
+    """ Builds an ISI array from a spike train. This is used for the joint-ISI plots.
+    takes:
+        spike_trains: the spike trains to build the ISI array from
+        low_cut: the low cut off for the ISI array
+        high_cut: the high cut off for the ISI array
+        indiv: whether to return the ISI array as a list of arrays, or a single array
+    returns:
+        ISI_: the ISI array"""
+    spike_trains = cast_backend_spk(spike_trains)
     ISI_ = []
-    N = len(spike_trains.keys())
+    N = len(spike_trains)
     if high_cut is None:
         for u in np.arange(N).astype(np.int32):
-            spikes = spike_trains[u] / second
+            spikes = spike_trains[u]
             spikes_filtered = spikes[spikes>low_cut]
             ISI_.append( np.diff(spikes_filtered)*1000)
     else:
         for u in np.arange(N).astype(np.int32):
-            spikes = spike_trains[u] / second
+            spikes = spike_trains[u]
             spikes_filtered = spikes[np.logical_and(spikes>low_cut, spikes<high_cut)]
             ISI_.append(np.diff(spikes_filtered)*1000)
     
@@ -66,17 +118,7 @@ def build_isi_from_spike_train(M, low_cut=0., high_cut=None, indiv=False):
             ISI_ = np.array([3000,3000])
     return ISI_
 
-def build_isi_from_spike_train_sep(M):
-    spike_trains = M.spike_trains() 
-    ISI_ = []
-    N = len(spike_trains.keys())
-
-    for u in np.arange(N).astype(np.int):
-        ISI_ = np.hstack((ISI_, np.diff(spike_trains[u] / second)))
-    ISI_ *= 1000
-    if ISI_.shape[0] < 1:
-        ISI_ = np.array([3000,3000])
-    return ISI_
+isi_from_spike_train = build_isi_from_spike_train #alias to old function name
 
 def unweave_spikes(times, ids):
     """Unweave spikes in a given time array with corresponding ids"""
@@ -195,29 +237,64 @@ def binary_spike_train(TIME, bin_size=5, end=None, binary=True):
     return hist
 
 def binned_fr(spike_times, end_time, binsize=0.5, bins=None):
-
+    """ Returns the binned firing rate of a single neuron. Spike times can either be a list of spike times or a list of spike trains.
+    takes:
+        spike_times: list of of spike times (in seconds)
+        end_time: the end time of the simulation (in seconds)
+        binsize: the size of the bins (in seconds)
+    returns:
+        binned_isi_hz: the binned firing rate of the neuron
+        bins: the bins used for the binned firing rate
+    """
     if bins is None:
         bins = np.arange(0, end_time, binsize)
     if bins is not None:
         binsize = bins[1] - bins[0]
-    
     bins_right = np.arange(binsize,end_time + binsize, binsize)
-    binned_isi_hz = []  
-    for x, x_r in zip(bins, bins_right):
-        temp_isi = spike_times / second
-        filtered_isi = temp_isi[np.logical_and(temp_isi>=x, temp_isi<x_r)]
-        binned_isi_hz.append((len(filtered_isi)/(binsize)))
-    return np.hstack(binned_isi_hz), bins
+    #cast the backend
+    spike_times = cast_backend_spk(spike_times)
+
+    #inner loop for the binned firing rate
+    def _inner_bin_loop(inner_spike):
+        inner_binned_isi_hz = []  
+        for x, x_r in zip(bins, bins_right):
+            filtered_isi = inner_spike[np.logical_and(inner_spike>=x, inner_spike<x_r)]
+            inner_binned_isi_hz.append((len(filtered_isi)/(binsize)))
+        return np.hstack(inner_binned_isi_hz)
+
+    #try to figure out if spike_times is a list of spike trains or a single neuron list of spike times
+    if len(spike_times) > 1:
+        #check the inner shape
+        if np.isscalar(spike_times[0]):
+            #this is a list of spike times from a single neuron (probably)
+            #logging.debug("binned_fr is being called on a list of spike times")
+            binned_isi_hz = _inner_bin_loop(spike_times)
+        elif isinstance(spike_times[0], np.ndarray): #probably a list of spike trains
+            #print("binned_fr is being called on a list of spike trains, did you mean to call binned_fr_pop?")
+            binned_isi_hz = [_inner_bin_loop(x) for x in spike_times]
+            #vstack the binned_isi_hz
+            binned_isi_hz = np.vstack(binned_isi_hz)
+    elif len(spike_times) < 1:
+        #this is an empty neuron
+        binned_isi_hz = np.zeros(len(bins))
+    else:
+        #this is a single neuron
+        binned_isi_hz = _inner_bin_loop(spike_times[0])
+    return binned_isi_hz, bins
 
 
 def binned_fr_pop(spike_times, end_time, popsize=500, binsize=0.5):
     """ Returns the binned firing rate of a population of neurons. Spike times can either be a list of spike times or a list of spike trains.
     takes:
-    spike_times: list of spike times or list of spike trains
-    end_time: the end time of the simulation (in seconds)
-    popsize: the number of neurons in the population
-    binsize: the size of the bins (in seconds)
+        spike_times: list of spike times or list of spike trains (in seconds)
+        end_time: the end time of the simulation (in seconds)
+        popsize: the number of neurons in the population (default 500)
+        binsize: the size of the bins (in seconds)
+    returns:
+        binned_isi_hz: the binned firing rate of the population
+        bins: the bins used for the binned firing rate
     """
+    spike_times = cast_backend_spk(spike_times)
     binned_isi_hz = []
     bins = np.arange(0, end_time, binsize)
     bins_right = np.arange(binsize,end_time + binsize, binsize)
@@ -230,14 +307,34 @@ def binned_fr_pop(spike_times, end_time, popsize=500, binsize=0.5):
         binned_isi_hz.append(np.nanmean(temp_isi_array))
     return np.hstack(binned_isi_hz), bins
 
-def equal_ar_size_from_list(isi_list):
+def equal_ar_size_from_list(isi_list, padding=np.nan):
+    """ Takes an array of arrays, and pads them to be the same size. This is used for the joint-ISI plots.
+    takes:
+        isi_list: the isi array in ms
+    returns:
+        new_list: the isi array with the same size arrays
+    """
+    if np.isscalar(padding):
+        call_pad = False
+    elif callable(padding):
+        call_pad = True
     lsize = len(max(isi_list, key=len))
     new_list = []
     for x in isi_list:
-        new_list.append(np.hstack((x, np.full((lsize-len(x)), np.nan))))
+        temp_pad = padding(x) if call_pad else padding
+        new_list.append(np.hstack((x, np.full((lsize-len(x)), [temp_pad]))))
     return np.vstack(new_list)
 
 def save_spike_train(isi, n=500, rand_num=30, filename='spike_trains.csv'):
+    """ Saves a random sample of spike trains from the isi array.
+    takes:
+        isi: the isi array in ms
+        n: the number of spike trains to sample
+        rand_num: the number of spikes to sample from each spike train
+    returns:
+        isi_out: the sampled spike trains
+    """
+
     units_index = np.random.randint(0,n, rand_num)
     isi_trains = []
     for x in units_index:
@@ -350,16 +447,16 @@ def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 2, b
         binary: whether to return a binary labeled isi array or not
         rm_kwargs: kwargs for the rolling mean function
     returns:
-        binned_states: the binned labels (1D array of [n_bins])
+        binned_states: the binned labels (1D array of [n_bins]), 0 is unclassified, 1 is tonic, 2 is intraburst, 3 is burst
         binned_burst: the binned burst signal (1D array of [n_bins])
         binned_tonic: the binned tonic signal (1D array of [n_bins])
 
     """
     if bins is None:
-        bins = np.arange(0, np.max(isi), binwidth)
-    if bins is not None:
+        bins = np.arange(0, np.max(np.cumsum(isi)), binwidth)
+    elif bins is not None:
         bins = bins
-        binwidth    = bins[1] - bins[0]
+        binwidth  = bins[1] - bins[0]
 
     #filter the bursts and tonic spikes
     labelb, bursts, non_bursts = filter_bursts(isi, burst=burst, sil=sil, intraburst=intraburst, binary=True, only_initial=True)
@@ -397,6 +494,7 @@ def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 2, b
     
 
 def spikes_per_burst(isi):
+
     labels, burst, non_burst = filter_bursts(isi)
     lens = []
     for x in burst:
@@ -453,19 +551,28 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
 
 
 def statistic_spikes(spikes, stat_fun=np.mean, window=10):
+    """ Computes statsicis of the provided spike trains. This is used for the CV2 and ISI CV2 plots. as well as the rolling fr
+    takes:
+        spikes: the spike trains to compute the statistics from (in seconds)
+        stat_fun: the statistic to compute
+        window: the window to use for the rolling window
+    returns:
+        bins: the bins used for the rolling window
+        cv2_: the computed statistic
+    """
+    spikes = cast_backend_spk(spikes)
     cv2_ = []
     for unit in np.arange(len(spikes)):
         isi = np.diff(spikes[unit]/ms)
-        isi_rolling_x, isi_rolling_y = rolling_window(spikes[unit]/second, isi, window, 0)
+        isi_rolling_x, isi_rolling_y = rolling_window(spikes[unit], isi, window, 0)
         cv2_temp = np.apply_along_axis(stat_fun, 1, isi_rolling_y)
         cv2_.append(bin_signal(isi_rolling_x, cv2_temp, bins=np.arange(5, 800.5, 1))[1])
     bins, _ = bin_signal(isi_rolling_x, cv2_temp, bins=np.arange(5, 800.5, 1))
-    
     cv2_ = np.vstack(cv2_)
     return bins, cv2_
 
 
-def build_networkx_graph(EI_Conn, IE_Conn, N=1000, I_strt_idx=None):
+def build_networkx_graph(EI_Conn, IE_Conn, N=1000, I_strt_idx=500):
     """Builds a networkx graph from the EI and IE connections
     Takes:
     EI_conn: a list of tuples of the form (E, I)
@@ -478,6 +585,25 @@ def build_networkx_graph(EI_Conn, IE_Conn, N=1000, I_strt_idx=None):
     G = nx.DiGraph()
     G.add_nodes_from(np.arange(N))
 
+    #figure out if the use accidentally passed in the wrong shape
+    if EI_Conn.shape[1] == 2:
+        pass
+    elif EI_Conn.shape[0] == 2 and EI_Conn.shape[1] != 2:
+        #transpose the array
+        print("EI_conn we think is (2, N) instead of (N, 2), transposing")
+        EI_Conn = EI_Conn.T
+    else:
+        print("EI_conn is not the right shape, we think it should be (N, 2), but it might not be")
+    
+    if IE_Conn.shape[1] == 2:
+        pass
+    elif IE_Conn.shape[0] == 2 and IE_Conn.shape[1] != 2:
+        #transpose the array
+        print("IE_conn we think is (2, N) instead of (N, 2), transposing")
+        IE_Conn = IE_Conn.T
+    else:
+        print("IE_conn is not the right shape, we think it should be (N, 2), but it might not be")
+    
     EI_adjusted = np.column_stack((EI_Conn[:, 0],EI_Conn[:, 1] + I_strt_idx))
     IE_adjusted = np.column_stack((IE_Conn[:, 0] + I_strt_idx,IE_Conn[:, 1]))
     full_connection_array = np.vstack((EI_adjusted, IE_adjusted))
@@ -485,11 +611,66 @@ def build_networkx_graph(EI_Conn, IE_Conn, N=1000, I_strt_idx=None):
     return G
 
 
+def build_kde(isi_corr):
+    isi_corr = np.log10(isi_corr)[:-1]
+    unit_kde = stats.gaussian_kde(isi_corr.T)
+    return unit_kde
 
 #% Plotting Functions %#
 # Functions to plot isi trains in various manners
 
+def plot_patterns(spikes, unit_idx=1, n=500, rand_num=500, figsize=(25,5), fig_num=7, colour=True, random=True):
+    """Plots the ISI patterns for a given unit. As presented in Ichiyama et al. 2021
+     If n is greater than 1, then it will plot n random units, if random is set to false, then it will plot the first n units
+    takes:
+        spikes: the spike trains to plot (in seconds)
+        unit_idx: the unit to plot
+        n: the number of units to plot
+        rand_num: the number of spikes to plot
+        figsize: the figure size
+        fig_num: the figure number
+        colour: whether to colour the spikes or not
+        random: whether to plot random units or not
+    returns:
+        fig: the figure object
+    """
+    spikes = cast_backend_spk(spikes)
+    fig = plt.figure(fig_num,  figsize=figsize )
+    if random:
+        units_index = np.random.randint(0,n, rand_num)
+    else:
+        if n>1:
+            units_index = np.arange(0, unit_idx)
+        else:
+            units_index = [unit_idx]
+    for x in units_index:
+        u_isi = spikes[x]
+        if len(u_isi) > 0:
+            time =  u_isi
+            u_isi = (np.diff(u_isi))*1000
+            color = ['red', 'blue', 'green', 'purple', 'orange']
+            plt.ylim( (1, pow(10,3.5)))
+            if colour:
+                plt.scatter(time, np.hstack((0,u_isi)), alpha=0.5)
+            else:
+                plt.scatter(time, np.hstack((0,u_isi)), alpha=0.5, c='grey')
+            plt.yscale('log')
+            plt.title(f'Unit {x}')
+    return fig
+
+
 def plot_xy(isiarray, lwl_bnd=0, up_bnd=4, fignum=2, color='k', alpha=0.05):
+    """Plots the joint-ISI plot for a given unit. As presented in Ichiyama et al. 2021
+    takes:
+        isiarray: the isi array to plot (in ms)
+        lwl_bnd: the lower bound for the plot
+        up_bnd: the upper bound for the plot
+        fignum: the figure number
+        color: the color of the plot
+        alpha: the alpha of the plot
+    returns:
+        fig: the figure object
+    """
     plt.figure(fignum, figsize=(10,10))
     if isiarray.shape[0] > 0:
         plt.scatter(isiarray[:,0],isiarray[:,1], marker='o', alpha=alpha, color=color)
@@ -499,6 +680,7 @@ def plot_xy(isiarray, lwl_bnd=0, up_bnd=4, fignum=2, color='k', alpha=0.05):
     plt.xscale('log')
     plt.ylabel('post isi (ms)')
     plt.xlabel('pre isi (ms)')
+    return plt.gcf()
 
 def plot_isi_hist(ISI, fignum=99):
     log_bins = np.logspace(0,4)
@@ -518,42 +700,6 @@ def plot_intra_burst(isi, fignum=100, low_cut=10):
     title("Pre Burst Interval")
     return intra_burst
 
-def plot_patterns(isi, unit_idx=1, n=500, rand_num=500, figsize=(25,5), colour=True, random=True):
-    plt.figure(7,  figsize=figsize )
-    plt.clf()
-    if random:
-        units_index = np.random.randint(0,n, rand_num)
-    else:
-        if n>1:
-            units_index = np.arange(0, unit_idx)
-        else:
-            units_index = [unit_idx]
-    for x in units_index:
-        u_isi = isi[x] / second
-        if len(u_isi) > 0:
-            time =  u_isi
-            u_isi = (np.diff(u_isi))*1000
-            color = ['red', 'blue', 'green', 'purple', 'orange']
-            plt.ylim( (1, pow(10,3.5)))
-            if colour:
-                plt.scatter(time, np.hstack((0,u_isi)), alpha=0.5)
-            else:
-                plt.scatter(time, np.hstack((0,u_isi)), alpha=0.5, c='grey')
-            plt.yscale('log')
-            plt.title(f'Unit {x}')
-
-
-            
-def plot_inst_freq(spike_train, figsize=(25,5), colour=None):
-    plt.figure(7,  figsize=figsize )
-    plt.clf()
-    ISI = np.diff(spike_train)
-    if colour is None:
-        colour = 'k'
-        
-    plt.scatter(spike_train[:-1], ISI, alpha=0.5, c=colour)
-    plt.yscale('log')  
-    
 def plot_switching_units(isi, switch, num, burst_thres=0.2, tonic_thres=0.1, n=500, figsize=(25,5), colour=True):
     units_index = np.arange(n)
     good_units = []

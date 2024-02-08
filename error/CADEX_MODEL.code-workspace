@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../../../CADEX_MODEL"
+		},
+		{
+			"path": "../../../../../../../media/smestern/sgbackup"
+		}
+	],
+	"settings": {
+		"workbench.colorTheme": "Default Dark+"
+	}
+}
