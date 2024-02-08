@@ -283,7 +283,7 @@ def binned_fr(spike_times, end_time, binsize=0.5, bins=None):
     return binned_isi_hz, bins
 
 
-def binned_fr_pop(spike_times, end_time, popsize=500, binsize=0.5):
+def binned_fr_pop(spike_times, end_time, popsize=None, binsize=0.5):
     """ Returns the binned firing rate of a population of neurons. Spike times can either be a list of spike times or a list of spike trains.
     takes:
         spike_times: list of spike times or list of spike trains (in seconds)
@@ -295,13 +295,15 @@ def binned_fr_pop(spike_times, end_time, popsize=500, binsize=0.5):
         bins: the bins used for the binned firing rate
     """
     spike_times = cast_backend_spk(spike_times)
+    if popsize is None:
+        popsize = len(spike_times)
     binned_isi_hz = []
     bins = np.arange(0, end_time, binsize)
     bins_right = np.arange(binsize,end_time + binsize, binsize)
     for x, x_r in zip(bins, bins_right):
         temp_isi_array = []
         for u in np.arange(popsize):
-            temp_isi = spike_times[u] / second
+            temp_isi = spike_times[u]
             filtered_isi = temp_isi[np.logical_and(temp_isi>=x, temp_isi<x_r)]
             temp_isi_array.append((len(filtered_isi)/(binsize)))
         binned_isi_hz.append(np.nanmean(temp_isi_array))

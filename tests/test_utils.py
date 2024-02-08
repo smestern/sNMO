@@ -1,4 +1,4 @@
-from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, build_networkx_graph
+from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, build_networkx_graph
 import numpy as np
 from brian2.units import second, ms
 from brian2 import *
@@ -70,11 +70,19 @@ def test_binned_fr():
         #what happens if pass a list of spike trains?
         out = binned_fr(cast_backend_spk(spike_mon), 1)[0]
         assert out.shape == (3, 2); print("test case 2 passed")
+
+        #try binned fr_pop
+        out = binned_fr_pop(spike_mon, 1)[0]
+        assert out.shape == (2,); print("test case 3 passed")
     
     #test case 3: check_backend_spk and binned_fr should handle a a dict items
     spikes = load('sNMO/tests/demo_spikes_N.joblib')
     out = [binned_fr(x, 600)[0] for _,x  in spikes.items() if _ < 500]
     assert np.isclose(out[1][1], 0); print("test case 3 passed")
+
+    
+
+
 
 def test_nx_func():
     print("Testing nx_func")
