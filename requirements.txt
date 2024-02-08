@@ -7,7 +7,7 @@ matplotlib==3.7.2
 neo==0.13.0
 networkx==3.1
 nevergrad==1.0.0
-numpy==1.24.3
+numpy==1.20.2
 pandas==2.0.3
 POT==0.9.3
 pyabf==2.3.8
