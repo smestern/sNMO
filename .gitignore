@@ -3,6 +3,7 @@
 /__pycache__/
 /tmp/
 /.ipynb_checkpoints/
+/sNMO.egg-info/
 *.ipynb
 *.pyc
 *.npy
