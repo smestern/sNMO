@@ -1,6 +1,5 @@
 Brian2==2.5.4
 elephant==1.0.0
-h5py
 ipfx>=1.0.3
 joblib==1.2.0
 matplotlib==3.7.2
