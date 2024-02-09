@@ -13,3 +13,6 @@ scikit_optimize==0.9.0
 scipy>=1.11.1
 torch==2.1.0
 pynwb
+#ideally we would like to included ipfx here but it has some errors installing in a fresh environment
+# so run the following command to install it manually
+# pip install ipfx --no-deps
