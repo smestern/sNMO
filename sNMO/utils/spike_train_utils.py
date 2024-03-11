@@ -18,13 +18,16 @@ except:
 #Tools for loading or transforming spike trains
 
 def cast_backend_spk(spike_trains, check_each=False):
-    """Checks the backend of the spike trains, and transforms them into a list of numpy arrays, should be used for all functions.
+    """
+    Checks the backend of the spike trains, and transforms them into a list of numpy arrays, should be used for all functions.
     removes brian2 units and brian2 backends
     takes:
         spike_trains: the spike trains to check. Can be a list of spike trains, a list of lists of spike trains, a dict of spike trains, a brian2 spike monitor, or a neo spike train
         check_each: whether to check each spike train individually, or assume they are all the same
     returns:
-        spike_trains: a list of spike trains"""
+        spike_trains: a list of spike trains
+        
+    """
     #should transform individual spike trains into a list of spike trains
     if isinstance(spike_trains, list) or isinstance(spike_trains, np.ndarray):
         #check the shape/len
@@ -55,7 +58,7 @@ def cast_backend_spk(spike_trains, check_each=False):
         spike_trains = [spike_trains]
     elif isinstance(spike_trains, dict):
         #check if the spike trains are in brian2 format e.g. have units
-        if isinstance(spike_trains[list(spike_trains.keys())[0]][0], Quantity):
+        if isinstance(spike_trains[list(spike_trains.keys())[0]], Quantity):
             spike_trains = [ np.array(v / second)for k, v in spike_trains.items()]
         else:
             spike_trains = [ np.array(v) for k, v in spike_trains.items()]

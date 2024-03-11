@@ -1,8 +1,9 @@
-from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, build_networkx_graph
+from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, build_networkx_graph, build_isi_from_spike_train
 import numpy as np
 from brian2.units import second, ms
 from brian2 import *
 from joblib import dump, load
+import os
 TEST_SPIKE_MON = True
 
 def test_check_backend_spk():
@@ -57,6 +58,18 @@ def test_check_backend_spk():
     out = cast_backend_spk(arr_units)
     assert np.isclose(out[0][0], arr[0]/1000).all(); print("test case 10 passed")
 
+    #test case 8: check_backend_spk should handle a a single level list
+    arr = np.random.randint(0, 100, (100))
+    arr_units = [arr*ms]
+    out = cast_backend_spk(arr_units)
+    assert np.isclose(out[0], arr/1000).all(); print("test case 11 passed")
+    out = cast_backend_spk(arr)
+    assert np.isclose(out[0], arr[0]).all(); print("test case 12 passed")
+
+    arr = load(os.path.abspath('sNMO//sNMO//tests//demo_spikes_N4.joblib'))
+    out = cast_backend_spk(arr)
+    assert np.isclose(out[0][0], arr[0][0]/1000).all(); print("test case 13 passed")
+
 def test_binned_fr():
     print("Testing binned_fr")
     if TEST_SPIKE_MON:
@@ -80,7 +93,11 @@ def test_binned_fr():
     out = [binned_fr(x, 600)[0] for _,x  in spikes.items() if _ < 500]
     assert np.isclose(out[1][1], 0); print("test case 3 passed")
 
-    
+
+def test_misc():
+    arr = load(os.path.abspath('sNMO//sNMO//tests//demo_spikes_N4.joblib'))
+    isi = build_isi_from_spike_train([arr])[0]
+    assert isi.shape[0] == 4; print("test case 1 passed")
 
 
 
@@ -96,6 +113,7 @@ def test_nx_func():
 
 
 if __name__ == '__main__':
-    test_nx_func()
+    test_misc()
+    #test_nx_func()
     test_check_backend_spk()
     test_binned_fr()
