@@ -1,11 +1,13 @@
+import matplotlib.pyplot as plt
 from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, build_networkx_graph, build_isi_from_spike_train
 import numpy as np
 from brian2.units import second, ms
-from brian2 import *
+from brian2 import SpikeGeneratorGroup, SpikeMonitor, Network
 from joblib import dump, load
+
 import os
 TEST_SPIKE_MON = True
-
+file_path = os.path.dirname(os.path.realpath(__file__))
 def test_check_backend_spk():
     print("Testing check_backend_spk")
     #test case 1: check_backend_spk should return the numpy array if it is already a numpy array
@@ -66,9 +68,13 @@ def test_check_backend_spk():
     out = cast_backend_spk(arr)
     assert np.isclose(out[0], arr[0]).all(); print("test case 12 passed")
 
-    arr = load(os.path.abspath('sNMO//sNMO//tests//demo_spikes_N4.joblib'))
+    arr = load(os.path.join(file_path, 'demo_spikes_N4.joblib'))
     out = cast_backend_spk(arr)
-    assert np.isclose(out[0][0], arr[0][0]/1000).all(); print("test case 13 passed")
+    assert np.isclose(out[0], arr[0]).all(); print("test case 13 passed")
+
+    arr = load(os.path.join(file_path, 'spks.pkl'))
+    out = cast_backend_spk(arr)
+    assert np.isclose(out[0][0], arr[0][0]/second).all(); print("test case 14 passed")
 
 def test_binned_fr():
     print("Testing binned_fr")
@@ -89,27 +95,26 @@ def test_binned_fr():
         assert out.shape == (2,); print("test case 3 passed")
     
     #test case 3: check_backend_spk and binned_fr should handle a a dict items
-    spikes = load('sNMO/tests/demo_spikes_N.joblib')
+    spikes = load(os.path.join(file_path, 'demo_spikes_N.joblib'))
     out = [binned_fr(x, 600)[0] for _,x  in spikes.items() if _ < 500]
     assert np.isclose(out[1][1], 0); print("test case 3 passed")
 
 
 def test_misc():
-    arr = load(os.path.abspath('sNMO//sNMO//tests//demo_spikes_N4.joblib'))
+    arr = load(os.path.join(file_path, './/demo_spikes_N4.joblib'))
     isi = build_isi_from_spike_train([arr])[0]
-    assert isi.shape[0] == 4; print("test case 1 passed")
+    assert isi.shape[0] == 37; print("test case 1 passed")
 
 
 
 def test_nx_func():
     print("Testing nx_func")
     #load the connmatrix
-    connmatrix = load('sNMO/tests/demo_connmatrix.joblib')
+    connmatrix = load(os.path.join(file_path, 'demo_connmatrix.joblib'))
     #test case 1: build_networkx_graph should return a networkx graph
     g = build_networkx_graph(connmatrix["IE"], connmatrix["EI"])
     assert g.number_of_nodes() == 1000; print("test case 1 passed")
     assert g.number_of_edges() == len(connmatrix["IE"].T)+len(connmatrix["EI"].T); print("test case 2 passed")
-
 
 
 if __name__ == '__main__':

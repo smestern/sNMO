@@ -1,7 +1,8 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy import stats
-from brian2 import *
+from brian2 import SpikeMonitor, Quantity, second, ms, SpikeGeneratorGroup
+
+import matplotlib.pyplot as plt
 try:
     import networkx as nx
 except:
@@ -42,7 +43,10 @@ def cast_backend_spk(spike_trains, check_each=False):
             if isinstance(spike_trains[0], Quantity):
                 spike_trains = [x / second for x in spike_trains] # probably a single spike train, so just remove the units
                 #make into an array
-                spike_trains = np.array(spike_trains)
+                try:
+                    spike_trains = np.array(spike_trains)
+                except:
+                    spike_trains = np.array(spike_trains, dtype=object)
             elif isscalar(spike_trains[0]):
                 spike_trains = np.array(spike_trains) #do nothing if it is a scalar, likely a list of spike times
             elif len(spike_trains[0]) <= 1:
@@ -692,8 +696,8 @@ def plot_isi_hist(ISI, fignum=99):
     plt.figure(fignum)
     plt.clf()
     plt.hist(ISI, log_bins)
-    xscale('log')
-    title("Network isi Dist")
+    plt.xscale('log')
+    plt.title("Network isi Dist")
     
 def plot_intra_burst(isi, fignum=100, low_cut=10):
     intra_burst, pre_burst = inter_burst_hist(isi, low_cut=low_cut)
@@ -701,8 +705,8 @@ def plot_intra_burst(isi, fignum=100, low_cut=10):
     plt.figure(fignum)
     plt.clf()
     plt.hist(pre_burst, log_bins)
-    xscale('log')
-    title("Pre Burst Interval")
+    plt.xscale('log')
+    plt.title("Pre Burst Interval")
     return intra_burst
 
 def plot_switching_units(isi, switch, num, burst_thres=0.2, tonic_thres=0.1, n=500, figsize=(25,5), colour=True):
@@ -742,4 +746,4 @@ def plot_switching_units(isi, switch, num, burst_thres=0.2, tonic_thres=0.1, n=5
 #Various Functions (and internal functions) to measure distances between spike trains
 #mostly focused on time-indepedent distances
 
-#MOVED TO SNMO
+MOVED  = "TO SNMO"

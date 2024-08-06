@@ -18,7 +18,7 @@ from sbi import utils as sbutils
 from sbi import analysis
 from sbi.inference import (SNPE,prepare_for_sbi)
 from sbi.inference.base import infer
-from skopt import Optimizer, plots, space
+from skopt import Optimizer, space
 from joblib import Parallel, delayed
 
 from ..utils import *
