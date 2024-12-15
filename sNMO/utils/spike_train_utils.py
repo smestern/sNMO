@@ -9,7 +9,7 @@ except:
     print("networkx not installed, some functions will not work")
 
 try: 
-    from elephant.statistics import cv2, lv 
+    from elephant.statistics import cv2, lv, cv
     import quantities as pq #elephant uses units, but different from brian2
     from neo import SpikeTrain
 except:
@@ -756,23 +756,29 @@ def plot_switching_units(isi, switch, num, burst_thres=0.2, tonic_thres=0.1, n=5
 #these functions are proxy functions for the elephant functions, and are used to cast the data into the correct format
 
 def _checklen(data):#length check for cv2 and lv, as they require at least 3 data points
-    if len(data) < 3:
+    if len(data) < 2:
         return False
     else:
         return True
 
 def ecv2(isi):
+    """
+        Calculates the coefficient of variation of the ISI. This is a proxy function for the elephant function.
+        takes:
+            isi: the isi array in ms
+        returns:
+            cv2_: the coefficient of variation of the isi
+        
+    """
     isi = cast_backend_spk(isi)
     cv2_ = []
     if len(np.array(isi, dtype=object).shape) > 1:
         for i in isi:
-            isi = np.diff(i)
             if _checklen(isi):
                 cv2_.append(cv2(isi*pq.ms))
             else:
                 cv2_.append(np.nan)
     else:
-        isi = np.diff(isi)
         if _checklen(isi):
             cv2_ = cv2(isi*pq.ms)
         else:
@@ -784,13 +790,11 @@ def elv(isi):
     lv_ = []
     if len(np.array(isi, dtype=object).shape) > 1:
         for i in isi:
-            isi = np.diff(i)
             if _checklen(isi):
                 lv_.append(lv(isi*pq.ms))
             else:
                 lv_.append(np.nan)
     else:
-        isi = np.diff(isi)
         if _checklen(isi):
             lv_ = lv(isi*pq.ms)
         else:

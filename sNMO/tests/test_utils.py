@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
-from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, build_networkx_graph, build_isi_from_spike_train, bin_signal
+from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, \
+build_networkx_graph, build_isi_from_spike_train, bin_signal, ecv2, cv, elv
 import numpy as np
 from brian2.units import second, ms
 from brian2 import SpikeGeneratorGroup, SpikeMonitor, Network
@@ -111,6 +112,29 @@ def test_binned_isi():
     test_first = np.hstack(out[0][1]) #assuming we didnt lose any values this should work out to the same as the original isi[0]
     assert np.all(np.isclose(test_first, isi[0])); print("test case 1 passed")
 
+def test_binned_cv():
+    print("Testing binned_cv")
+    spikes = load(os.path.join(file_path, 'demo_spikes_N.joblib'))
+    isi = [np.diff(x/second) for _,x  in spikes.items() if _ < 500]
+    bins = np.arange(0, 100, 10)
+    #test case 1: bin_signal with a list of spike trains and None bin signal should return the isis binned
+    out = [bin_signal(np.cumsum(i), i, bins=bins, bin_func=None) for i in isi if len(i) > 1]
+    
+    #now compute the cv for each bin
+    outcv = [cv(i) for i in out[0][1]]
+    outcv2 = [ecv2(i) for i in out[0][1]]
+    outlv = [elv(i) for i in out[0][1]]
+    outcv, outcv2, outlv = np.nan_to_num(outcv), np.nan_to_num(outcv2), np.nan_to_num(outlv)
+    assert len(outcv) == len(out[0][1]); print("test case 1 passed")
+    plt.scatter(np.cumsum(isi[0]), isi[0]*1000)
+    plt.yscale('log')
+    plt.twinx()
+    plt.plot(bins[:-1], outcv2, label='ecv2')
+    plt.plot(bins[:-1], outcv, label='cv')
+    plt.plot(bins[:-1], outlv, label='elv')
+    plt.legend()
+    plt.show()
+        
 
 def test_misc():
     arr = load(os.path.join(file_path, './/demo_spikes_N4.joblib'))
@@ -131,6 +155,7 @@ def test_nx_func():
 
 if __name__ == '__main__':
     test_misc()
+    test_binned_cv()
     test_binned_isi()
     #test_nx_func()
     test_check_backend_spk()
