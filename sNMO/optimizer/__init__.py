@@ -1,1 +1,1 @@
-from .optimizer import Optimizer    # <--- This line is added
+from .optimizer import snmOptimizer    # <--- This line is added

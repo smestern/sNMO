@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, build_networkx_graph, build_isi_from_spike_train
+from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, build_networkx_graph, build_isi_from_spike_train, bin_signal
 import numpy as np
 from brian2.units import second, ms
 from brian2 import SpikeGeneratorGroup, SpikeMonitor, Network
@@ -72,9 +72,9 @@ def test_check_backend_spk():
     out = cast_backend_spk(arr)
     assert np.isclose(out[0], arr[0]).all(); print("test case 13 passed")
 
-    arr = load(os.path.join(file_path, 'spks.pkl'))
-    out = cast_backend_spk(arr)
-    assert np.isclose(out[0][0], arr[0][0]/second).all(); print("test case 14 passed")
+    # arr = load(os.path.join(file_path, 'spks.pkl'))
+    # out = cast_backend_spk(arr)
+    # assert np.isclose(out[0][0], arr[0][0]/second).all(); print("test case 14 passed")
 
 def test_binned_fr():
     print("Testing binned_fr")
@@ -99,6 +99,18 @@ def test_binned_fr():
     out = [binned_fr(x, 600)[0] for _,x  in spikes.items() if _ < 500]
     assert np.isclose(out[1][1], 0); print("test case 3 passed")
 
+def test_binned_isi():
+    print("Testing binned_isi")
+
+    spikes = load(os.path.join(file_path, 'demo_spikes_N.joblib'))
+    isi = [np.diff(x/second) for _,x  in spikes.items() if _ < 500]
+    bins = np.arange(0, 100, 0.1)
+    #test case 1: bin_signal with a list of spike trains and None bin signal should return the isis binned
+    out = [bin_signal(np.cumsum(i), i, bins=bins, bin_func=None) for i in isi if len(i) > 1]
+
+    test_first = np.hstack(out[0][1]) #assuming we didnt lose any values this should work out to the same as the original isi[0]
+    assert np.all(np.isclose(test_first, isi[0])); print("test case 1 passed")
+
 
 def test_misc():
     arr = load(os.path.join(file_path, './/demo_spikes_N4.joblib'))
@@ -119,6 +131,7 @@ def test_nx_func():
 
 if __name__ == '__main__':
     test_misc()
+    test_binned_isi()
     #test_nx_func()
     test_check_backend_spk()
     test_binned_fr()

@@ -9,7 +9,8 @@ except:
     print("networkx not installed, some functions will not work")
 
 try: 
-    from elephant.statistics import cv2
+    from elephant.statistics import cv2, lv 
+    import quantities as pq #elephant uses units, but different from brian2
     from neo import SpikeTrain
 except:
     print("elephant not installed, some functions will not work")
@@ -47,7 +48,7 @@ def cast_backend_spk(spike_trains, check_each=False):
                     spike_trains = np.array(spike_trains)
                 except:
                     spike_trains = np.array(spike_trains, dtype=object)
-            elif isscalar(spike_trains[0]):
+            elif np.isscalar(spike_trains[0]):
                 spike_trains = np.array(spike_trains) #do nothing if it is a scalar, likely a list of spike times
             elif len(spike_trains[0]) <= 1:
                 spike_trains = [np.array(x / second) for x in spike_trains]
@@ -503,7 +504,8 @@ def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 2, b
     
 
 def spikes_per_burst(isi):
-
+    """ Computes the number of spikes per burst. This is used for the joint-ISI plots, and firing statistics.
+    """
     labels, burst, non_burst = filter_bursts(isi)
     lens = []
     for x in burst:
@@ -538,7 +540,7 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
     Bin signal.
     """
     if bins is None:
-        bins = np.arange(np.min(X), np.max(X), 0.1)
+        bins = np.arange(np.min(X), np.max(X)+0.1, 0.1)
     else:
         bins = bins
 
@@ -551,12 +553,20 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
         Y = np.hstack((np.full(bins.shape, pad_val), Y, np.full(bins.shape, pad_val)))
         X = np.hstack((np.full(bins.shape, bins[0]-(1e-12)), X, np.full(bins.shape, bins[-1])))
 
-    Y_ = np.zeros(len(bins))
-    for i in np.arange(len(bins)-1):
-        Y_[i] = bin_func(Y[(X > bins[i]) & (X <= bins[i+1])])
+    if bin_func is not None:
+        Y_ = np.zeros(len(bins))
+        for i in np.arange(len(bins)-1):
+            Y_[i] = bin_func(Y[(X > bins[i]) & (X <= bins[i+1])])
+        np.nan_to_num(Y_)
+    else:
+        #no bin function, just return the values in each bin
+        Y_ = []
+        for i in np.arange(len(bins)-1):
+            Y_.append(Y[(X > bins[i]) & (X <= bins[i+1])])
+        #force the bins into a numpy array?
     #fill the last bin
     #Y_[-1] = bin_func(Y[X > bins[-1]])
-    return bins, np.nan_to_num(Y_)
+    return bins, Y_
 
 
 def statistic_spikes(spikes, stat_fun=np.mean, window=10):
@@ -740,6 +750,54 @@ def plot_switching_units(isi, switch, num, burst_thres=0.2, tonic_thres=0.1, n=5
         print("not enough units passing the threshold")
     return len(good_units)
             
+
+## Elephant functions
+
+#these functions are proxy functions for the elephant functions, and are used to cast the data into the correct format
+
+def _checklen(data):#length check for cv2 and lv, as they require at least 3 data points
+    if len(data) < 3:
+        return False
+    else:
+        return True
+
+def ecv2(isi):
+    isi = cast_backend_spk(isi)
+    cv2_ = []
+    if len(np.array(isi, dtype=object).shape) > 1:
+        for i in isi:
+            isi = np.diff(i)
+            if _checklen(isi):
+                cv2_.append(cv2(isi*pq.ms))
+            else:
+                cv2_.append(np.nan)
+    else:
+        isi = np.diff(isi)
+        if _checklen(isi):
+            cv2_ = cv2(isi*pq.ms)
+        else:
+            cv2_ = np.nan
+    return cv2_
+
+def elv(isi):
+    isi = cast_backend_spk(isi)
+    lv_ = []
+    if len(np.array(isi, dtype=object).shape) > 1:
+        for i in isi:
+            isi = np.diff(i)
+            if _checklen(isi):
+                lv_.append(lv(isi*pq.ms))
+            else:
+                lv_.append(np.nan)
+    else:
+        isi = np.diff(isi)
+        if _checklen(isi):
+            lv_ = lv(isi*pq.ms)
+        else:
+            lv_ = np.nan
+    return lv_
+
+
 
 
 #% Distance functions %#
