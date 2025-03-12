@@ -360,7 +360,7 @@ def save_spike_train_col(isi, filename='spike_trains_col.csv'):
     np.savetxt(f"{filename}", isi_out.T, fmt='%.18f', delimiter=',')
 
 
-def filter_bursts(isi, sil=25, burst=6, intraburst=25, label_sil=False, binary=False, only_initial=False):
+def filter_bursts(isi, sil=25, burst=8, intraburst=25, label_sil=False, binary=False, only_initial=False):
     """ Filters the bursts, and 'tonic' spiking of the the given isi array. labelling the spike train where appropriate. Default values are
     from the Ichiyama et al. 2021 paper. Advanced method allows for an exponeniatal growth of the intraburst time, but this is not
     implemented yet.
@@ -403,7 +403,7 @@ def filter_bursts(isi, sil=25, burst=6, intraburst=25, label_sil=False, binary=F
         labeled_isi[labeled_isi==3] = 0
     return labeled_isi, bursts, non_burst
 
-def filter_tonic(isi, sil=25, burst=6, intraburst=50):
+def filter_tonic(isi, sil=25, burst=8, intraburst=50):
     """ Filters out bursts and intrabursts, leaving only 'tonic' spikes. This is the opposite of filter_bursts, and 
     is a bit of a hack. The criteria is that the isi before and after the spike is greater than the intraburst time.
     takes:
@@ -437,7 +437,7 @@ def filter_tonic(isi, sil=25, burst=6, intraburst=50):
     non_tonic = isi[labeled_isi==0]
     return labeled_isi, tonic_spikes, non_tonic
 
-def compute_states(isi, sil=25, burst=6, intraburst=25, tonic_state_thres = 2, burst_state_thres = 0.05,
+def compute_states(isi, sil=25, burst=8, intraburst=25, tonic_state_thres = 2, burst_state_thres = 0.05,
                 bins=None, binwidth=3000, rolling_mean=True, binary=True, rm_kwargs={'window_n': 3, 'padding': np.nanmean}):
     """
     Computes the states of the ISI array, using the filter_bursts and filter_tonic functions. Returns the "states" in the context of the Ichiyama
@@ -514,8 +514,28 @@ def spikes_per_burst(isi):
     hist = np.histogram(lens, bins)
     return lens, hist, bins
 
+def rolling_padding(arr, window_n, padding=np.nanmean):
+    """
+    Rolling padding for 1D data.
+    """
+    if callable(padding):
+        padding = padding(arr)
+    elif isinstance(padding, np.number):
+        padding = padding
+    elif isinstance(padding, np.ndarray):
+        padding = padding[0]
+    elif isinstance(padding, str):
+        if padding == 'mean':
+            padding = np.nanmean(arr)
+        elif padding == 'median':
+            padding = np.nanmedian(arr)
+        elif padding == 'same':
+            padding = arr[-1]
+        else:
+            padding = np.nan
+    return padding
 
-def rolling_window(X, Y, window_n, padding=np.nanmean,):
+def rolling_window(X, Y, window_n, padding='same'):
     """
     Rolling window for 1D data.
     """
@@ -528,14 +548,13 @@ def rolling_window(X, Y, window_n, padding=np.nanmean,):
          isi_corr = np.vstack((isi_corr, temp))
     
     #if the padding is a function, apply it to the data
-    if callable(padding):
-        padding = padding(isi_corr)
+    padding = rolling_padding(Y, window_n, padding)
     #if the padding is a number, fill with that number
     Y_ = np.nan_to_num(isi_corr, nan=padding)
-    return X[:-1], Y_.T
+    return X, Y_.T
 
 
-def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
+def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding='same'):
     """
     Bin signal.
     """
@@ -546,10 +565,7 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
 
     if padding is not None and bin_func is np.nanmean:
         #pad y with padding function if 
-        if callable(padding):
-            pad_val = padding(Y)
-        else:
-            pad_val = padding
+        pad_val = rolling_padding(Y, 3, padding)
         Y = np.hstack((np.full(bins.shape, pad_val), Y, np.full(bins.shape, pad_val)))
         X = np.hstack((np.full(bins.shape, bins[0]-(1e-12)), X, np.full(bins.shape, bins[-1])))
 
@@ -557,15 +573,19 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding=np.nanmean):
         Y_ = np.zeros(len(bins))
         for i in np.arange(len(bins)-1):
             Y_[i] = bin_func(Y[(X > bins[i]) & (X <= bins[i+1])])
-        np.nan_to_num(Y_)
+        #fill the last bin
+        Y_[-1] = bin_func(Y[X > bins[-1]])
+        Y_ = np.nan_to_num(Y_)
+        
     else:
         #no bin function, just return the values in each bin
-        Y_ = []
+        Y_ = [[] for x in bins]
         for i in np.arange(len(bins)-1):
-            Y_.append(Y[(X > bins[i]) & (X <= bins[i+1])])
+            Y_[i] = Y[(X > bins[i]) & (X <= bins[i+1])]
         #force the bins into a numpy array?
-    #fill the last bin
-    #Y_[-1] = bin_func(Y[X > bins[-1]])
+        #fill the last bin
+        Y_[-1] = Y[X > bins[-1]]
+    
     return bins, Y_
 
 

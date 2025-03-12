@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from sNMO.utils.spike_train_utils import cast_backend_spk, binned_fr, binned_fr_pop, \
-build_networkx_graph, build_isi_from_spike_train, bin_signal, ecv2, cv, elv
+build_networkx_graph, build_isi_from_spike_train, bin_signal, ecv2, cv, elv, rolling_window
 import numpy as np
 from brian2.units import second, ms
 from brian2 import SpikeGeneratorGroup, SpikeMonitor, Network
@@ -126,12 +126,13 @@ def test_binned_cv():
     outlv = [elv(i) for i in out[0][1]]
     outcv, outcv2, outlv = np.nan_to_num(outcv), np.nan_to_num(outcv2), np.nan_to_num(outlv)
     assert len(outcv) == len(out[0][1]); print("test case 1 passed")
+    plt.figure()
     plt.scatter(np.cumsum(isi[0]), isi[0]*1000)
     plt.yscale('log')
     plt.twinx()
-    plt.plot(bins[:-1], outcv2, label='ecv2')
-    plt.plot(bins[:-1], outcv, label='cv')
-    plt.plot(bins[:-1], outlv, label='elv')
+    plt.plot(bins, outcv2, label='ecv2')
+    plt.plot(bins, outcv, label='cv')
+    plt.plot(bins, outlv, label='elv')
     plt.legend()
     plt.show()
         
@@ -141,7 +142,17 @@ def test_misc():
     isi = build_isi_from_spike_train([arr])[0]
     assert isi.shape[0] == 37; print("test case 1 passed")
 
+def test_rolling_window():
+    #make a sine wave for testing
+    x = np.linspace(0, 10, 1000)
+    y = np.sin(x)
+    #test case 1: rolling window should return the correct shape
+    x, out = rolling_window(x, y, 10)
+    assert out.shape == (1000, 10); print("test case 1 passed")
 
+    plt.plot(x, out.mean(axis=1))
+    plt.plot(x, y)
+    plt.pause(0.1)
 
 def test_nx_func():
     print("Testing nx_func")
@@ -154,6 +165,7 @@ def test_nx_func():
 
 
 if __name__ == '__main__':
+    test_rolling_window()
     test_misc()
     test_binned_cv()
     test_binned_isi()
