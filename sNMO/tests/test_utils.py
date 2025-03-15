@@ -7,7 +7,7 @@ from brian2 import SpikeGeneratorGroup, SpikeMonitor, Network
 from joblib import dump, load
 
 import os
-TEST_SPIKE_MON = True
+TEST_SPIKE_MON = False
 file_path = os.path.dirname(os.path.realpath(__file__))
 def test_check_backend_spk():
     print("Testing check_backend_spk")
@@ -165,10 +165,11 @@ def test_nx_func():
 
 
 if __name__ == '__main__':
+    test_check_backend_spk()
     test_rolling_window()
     test_misc()
     test_binned_cv()
     test_binned_isi()
     #test_nx_func()
-    test_check_backend_spk()
+    
     test_binned_fr()

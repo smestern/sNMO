@@ -9,7 +9,7 @@ except:
     print("networkx not installed, some functions will not work")
 
 try: 
-    from elephant.statistics import cv2, lv, cv
+    from elephant.statistics import cv2, lv, cv, lvr
     import quantities as pq #elephant uses units, but different from brian2
     from neo import SpikeTrain
 except:
@@ -530,7 +530,7 @@ def rolling_padding(arr, window_n, padding=np.nanmean):
         elif padding == 'median':
             padding = np.nanmedian(arr)
         elif padding == 'same':
-            padding = arr[-1]
+            padding = arr[-window_n] if len(arr) > window_n else np.nan
         else:
             padding = np.nan
     return padding
@@ -586,6 +586,43 @@ def bin_signal(X, Y, bins=None, bin_func=np.nanmean, padding='same'):
         #fill the last bin
         Y_[-1] = Y[X > bins[-1]]
     
+    return bins, Y_
+
+def bin_ISI_backfill(X, Y, bins=None, bin_func=np.nanmean, padding='same'):
+    """
+    Similar to the bin signal function, but backfills the data for instances where the data is missing.
+    """
+    if bins is None:
+        bins = np.arange(np.min(X), np.max(X)+0.1, 0.1)
+    
+    if padding is not None and bin_func is np.nanmean:
+        #pad y with padding function if 
+        pad_val = rolling_padding(Y, 3, padding)
+        Y = np.hstack((np.full(bins.shape, pad_val), Y, np.full(bins.shape, pad_val)))
+        X = np.hstack((np.full(bins.shape, bins[0]-(1e-12)), X, np.full(bins.shape, bins[-1])))
+    
+    if bin_func is not None:
+        Y_ = np.zeros(len(bins))
+        for i in np.arange(len(bins)-1):
+            bin_data = bin_func(Y[(X > bins[i]) & (X <= bins[i+1])])
+            if np.isnan(bin_data):
+                bin_data = Y_[i-1]
+            Y_[i] = bin_data
+        #fill the last bin
+        Y_[-1] = bin_func(Y[X > bins[-1]])
+        #Y_ = np.nan_to_num(Y_)
+    if bin_func is None:
+        Y_ = [[] for x in bins]
+        for i in np.arange(len(bins)-1):
+            bin_data = Y[(X > bins[i]) & (X <= bins[i+1])]
+            if len(bin_data) == 0:
+                if np.isscalar(Y_[i-1])==False:
+                    bin_data = Y_[i-1]
+                else:
+                    bin_data = Y_[i-1][-1]
+            Y_[i] = bin_data
+        #fill the last bin
+        Y_[-1] = Y[X > bins[-1]]
     return bins, Y_
 
 
@@ -821,6 +858,21 @@ def elv(isi):
             lv_ = np.nan
     return lv_
 
+def elvr(isi, r=5*pq.ms):
+    isi = cast_backend_spk(isi)
+    lv_ = []
+    if len(np.array(isi, dtype=object).shape) > 1:
+        for i in isi:
+            if _checklen(isi):
+                lv_.append(lvr(isi*pq.ms, R=r))
+            else:
+                lv_.append(np.nan)
+    else:
+        if _checklen(isi):
+            lv_ = lvr(isi*pq.ms)
+        else:
+            lv_ = np.nan
+    return lv_
 
 
 
